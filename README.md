@@ -1,0 +1,1 @@
+"/home/eric/workspace/photo-scanner-rust/target/debug/photo-scanner-rust"
