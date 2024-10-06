@@ -118,7 +118,7 @@ async fn main() -> Result<()> {
                     match extract_image_description(&file).await {
                         Ok(description) => match description {
                             Some(description) => {
-                                match store_description(&file, description.clone()).await {
+                                match store_description_xmp(&file, description.clone()).await {
                                     Ok(_) => {
                                         tracing::info!("{} {}", &file.display(), description)
                                     }
@@ -159,7 +159,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn store_description(path: &PathBuf, description: String) -> Result<()> {
+async fn store_description_xmp(path: &PathBuf, description: String) -> Result<()> {
     // Step 1: Open the JPEG file with XmpFile for reading and writing XMP metadata
     let mut xmp_file = XmpFile::new()?;
 
