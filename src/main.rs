@@ -1,11 +1,18 @@
 use anyhow::{anyhow, Result};
-use exif::{Reader, Tag};
+use base64::{prelude::BASE64_STANDARD, Engine};
+use bytes::Bytes;
+use exif::experimental::Writer;
+use exif::{Field, In, Tag, Value};
 use futures::stream::{Stream, StreamExt};
-use std::fs::File;
-use std::io::BufReader;
+use img_parts::jpeg::Jpeg;
+use img_parts::ImageEXIF;
+use photo_scanner_rust::domain::ports::Chat;
+use photo_scanner_rust::outbound::openai::OpenAI;
 use std::path::PathBuf;
 use std::pin::Pin;
-use tokio::fs;
+use tokio::fs::{self, File};
+use tokio::io::AsyncReadExt;
+
 // Function to list files in a directory and its subdirectories
 fn list_files(directory: PathBuf) -> Pin<Box<dyn Stream<Item = Result<PathBuf>> + Send>> {
     let initial_read_dir = fs::read_dir(directory);
@@ -36,7 +43,7 @@ fn list_files(directory: PathBuf) -> Pin<Box<dyn Stream<Item = Result<PathBuf>> 
 // Function to extract EXIF data from a file
 async fn extract_exif(path: &PathBuf) -> Result<Option<String>> {
     // Open the file
-    let file = match File::open(path) {
+    let mut file = match File::open(path).await {
         Ok(file) => file,
         Err(e) => {
             tracing::error!("Failed to open file {}: {}", path.display(), e);
@@ -44,30 +51,87 @@ async fn extract_exif(path: &PathBuf) -> Result<Option<String>> {
         }
     };
 
-    // Read the contents of the file into memory
-    let mut reader = BufReader::new(&file);
+    // Create a buffer to store the file content
+    let mut buffer = Vec::new();
+
+    // Read the entire file content into the buffer
+    file.read_to_end(&mut buffer).await?;
 
     // Try to parse EXIF data
-    let exif = match Reader::new().read_from_container(&mut reader) {
-        Ok(exif) => exif,
+    let jpeg = match Jpeg::from_bytes(buffer.clone().into()) {
+        Ok(jpeg) => jpeg,
         Err(e) => {
-            tracing::error!("Failed to read EXIF data from {}: {}", path.display(), e);
+            tracing::error!("Failed to read JPEG from {}: {}", path.display(), e);
             return Ok(None);
         }
     };
 
-    //exif.fields().for_each(|f| println!("{:?}", f));
+    let exif_bytes = jpeg.exif().unwrap();
 
-    // For demonstration, we'll try to extract the camera make (you can extract other tags as needed)
-    if let Some(field) = exif.get_field(Tag::DateTimeOriginal, exif::In::PRIMARY) {
-        Ok(Some(format!(
-            "{}: {}",
-            Tag::DateTimeOriginal,
-            field.display_value().with_unit(&exif)
-        )))
-    } else {
-        Ok(None)
+    let mut exif = match exif::parse_exif(&exif_bytes) {
+        Ok((data, success)) => {
+            if success {
+                data
+            } else {
+                tracing::error!("Failed to read Exif from {}", path.display());
+                return Ok(None);
+            }
+        }
+        Err(e) => {
+            tracing::error!("Failed to read JPEG from {}: {}", path.display(), e);
+            return Ok(None);
+        }
+    };
+
+    let chat: OpenAI = OpenAI::new();
+
+    let image_base64 = BASE64_STANDARD.encode(buffer);
+    let folder_name: String = path
+        .parent()
+        .unwrap()
+        .file_name()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+
+    let description = chat.get_chat(image_base64, None, Some(folder_name)).await?;
+    println!("Description: {}", description);
+    // Add a new EXIF field (for example, a custom UserComment tag)
+    let field_description = Field {
+        tag: Tag::ImageDescription,
+        ifd_num: In::PRIMARY,
+        value: Value::Ascii(vec![description.as_bytes().to_vec()]),
+    };
+
+    // Add or replace the field in the EXIF data
+    exif.push(field_description.clone());
+
+    let mut writer = Writer::new();
+    let exif_ref: &Vec<Field> = exif.as_ref();
+    for f in exif_ref.iter() {
+        writer.push_field(f);
     }
+
+    let mut new_exif_bytes = std::io::Cursor::new(Vec::new());
+    writer.write(&mut new_exif_bytes, false)?;
+
+    let mut new_jpeg = jpeg.clone();
+    let new_exif_bytes = new_exif_bytes.into_inner();
+
+    new_jpeg.set_exif(Some(Bytes::from(new_exif_bytes)));
+    // Step 8: Write the modified JPEG back to a new file
+    let output_file = std::fs::File::create("/home/eric/updated_image2.jpg")?;
+
+    match new_jpeg.encoder().write_to(output_file) {
+        Ok(jpeg) => (),
+        Err(e) => {
+            tracing::error!("Failed to read JPEG from {}: {}", path.display(), e);
+            return Ok(None);
+        }
+    }
+
+    Ok(None)
 }
 
 #[tokio::main]
