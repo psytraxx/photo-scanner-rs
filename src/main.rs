@@ -106,7 +106,7 @@ async fn main() -> Result<()> {
     // Traverse the files and print them
     let mut files_stream = list_files(path);
 
-    let semaphore = Arc::new(Semaphore::new(1)); // Limit to 2 concurrent tasks
+    let semaphore = Arc::new(Semaphore::new(2)); // Limit to 2 concurrent tasks
     let mut tasks = FuturesUnordered::new();
 
     while let Some(file_result) = files_stream.next().await {
