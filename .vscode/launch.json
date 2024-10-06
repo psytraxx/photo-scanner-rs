@@ -19,7 +19,7 @@
                     "kind": "bin"
                 }
             },
-            "args": ["/mnt/data/Photos/photos/2022/pilatus/"],
+            "args": ["/home/eric/Desktop/sizilien/"],
             "cwd": "${workspaceFolder}"
         },
         {
