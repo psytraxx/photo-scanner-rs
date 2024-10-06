@@ -3,15 +3,18 @@ use base64::{prelude::BASE64_STANDARD, Engine};
 use bytes::Bytes;
 use exif::experimental::Writer;
 use exif::{Field, In, Tag, Value};
-use futures::stream::{Stream, StreamExt};
+use futures::stream::{FuturesUnordered, Stream, StreamExt};
 use img_parts::jpeg::Jpeg;
 use img_parts::ImageEXIF;
 use photo_scanner_rust::domain::ports::Chat;
 use photo_scanner_rust::outbound::openai::OpenAI;
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::sync::Arc;
 use tokio::fs::{self, File};
 use tokio::io::AsyncReadExt;
+use tokio::sync::Semaphore;
+use tracing::error;
 
 // Function to list files in a directory and its subdirectories
 fn list_files(directory: PathBuf) -> Pin<Box<dyn Stream<Item = Result<PathBuf>> + Send>> {
@@ -41,12 +44,12 @@ fn list_files(directory: PathBuf) -> Pin<Box<dyn Stream<Item = Result<PathBuf>> 
 }
 
 // Function to extract EXIF data from a file
-async fn extract_exif(path: &PathBuf) -> Result<Option<String>> {
+async fn process_image(path: &PathBuf) -> Result<Option<String>> {
     // Open the file
     let mut file = match File::open(path).await {
         Ok(file) => file,
         Err(e) => {
-            tracing::error!("Failed to open file {}: {}", path.display(), e);
+            error!("Failed to open file {}: {}", path.display(), e);
             return Ok(None);
         }
     };
@@ -55,30 +58,42 @@ async fn extract_exif(path: &PathBuf) -> Result<Option<String>> {
     let mut buffer = Vec::new();
 
     // Read the entire file content into the buffer
-    file.read_to_end(&mut buffer).await?;
+    match file.read_to_end(&mut buffer).await {
+        Ok(_) => (),
+        Err(e) => {
+            error!("Failed to read file {}: {}", path.display(), e);
+            return Ok(None);
+        }
+    };
 
     // Try to parse EXIF data
     let jpeg = match Jpeg::from_bytes(buffer.clone().into()) {
         Ok(jpeg) => jpeg,
         Err(e) => {
-            tracing::error!("Failed to read JPEG from {}: {}", path.display(), e);
+            error!("Failed to read JPEG from {}: {}", path.display(), e);
             return Ok(None);
         }
     };
 
-    let exif_bytes = jpeg.exif().unwrap();
+    let exif_bytes = match jpeg.exif() {
+        Some(exif) => exif,
+        None => {
+            error!("No Exif data found in {}", path.display());
+            return Ok(None);
+        }
+    };
 
     let mut exif = match exif::parse_exif(&exif_bytes) {
         Ok((data, success)) => {
             if success {
                 data
             } else {
-                tracing::error!("Failed to read Exif from {}", path.display());
+                error!("Failed to read Exif from {}", path.display());
                 return Ok(None);
             }
         }
         Err(e) => {
-            tracing::error!("Failed to read JPEG from {}: {}", path.display(), e);
+            error!("Failed to read JPEG from {}: {}", path.display(), e);
             return Ok(None);
         }
     };
@@ -86,17 +101,11 @@ async fn extract_exif(path: &PathBuf) -> Result<Option<String>> {
     let chat: OpenAI = OpenAI::new();
 
     let image_base64 = BASE64_STANDARD.encode(buffer);
-    let folder_name: String = path
+    let folder_name: Option<String> = path
         .parent()
-        .unwrap()
-        .file_name()
-        .unwrap()
-        .to_str()
-        .unwrap()
-        .to_string();
+        .and_then(|p| p.file_name()?.to_str().map(|s| s.to_string()));
 
-    let description = chat.get_chat(image_base64, None, Some(folder_name)).await?;
-    println!("Description: {}", description);
+    let description = chat.get_chat(image_base64, None, folder_name).await?;
     // Add a new EXIF field (for example, a custom UserComment tag)
     let field_description = Field {
         tag: Tag::ImageDescription,
@@ -115,27 +124,26 @@ async fn extract_exif(path: &PathBuf) -> Result<Option<String>> {
 
     let mut new_exif_bytes = std::io::Cursor::new(Vec::new());
     writer.write(&mut new_exif_bytes, false)?;
-
-    let mut new_jpeg = jpeg.clone();
     let new_exif_bytes = new_exif_bytes.into_inner();
 
+    let mut new_jpeg = jpeg.clone();
     new_jpeg.set_exif(Some(Bytes::from(new_exif_bytes)));
-    // Step 8: Write the modified JPEG back to a new file
+
     let output_file = std::fs::File::create("/home/eric/updated_image2.jpg")?;
+    new_jpeg.encoder().write_to(output_file)?;
 
-    match new_jpeg.encoder().write_to(output_file) {
-        Ok(jpeg) => (),
-        Err(e) => {
-            tracing::error!("Failed to read JPEG from {}: {}", path.display(), e);
-            return Ok(None);
-        }
-    }
-
-    Ok(None)
+    Ok(Some(description))
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .with_ansi(true)
+        .with_target(false)
+        .without_time()
+        .init();
+
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() != 2 {
@@ -146,13 +154,43 @@ async fn main() -> Result<()> {
 
     // Traverse the files and print them
     let mut files_stream = list_files(path);
+
+    let semaphore = Arc::new(Semaphore::new(2)); // Limit to 2 concurrent tasks
+    let mut tasks = FuturesUnordered::new();
+
     while let Some(file_result) = files_stream.next().await {
         match file_result {
             Ok(file) => {
-                let exif = extract_exif(&file).await?;
-                println!("{} {:?}", &file.display(), exif)
+                let semaphore = Arc::clone(&semaphore);
+                tasks.push(tokio::spawn(async move {
+                    let permit = semaphore.acquire().await.unwrap();
+                    match process_image(&file).await {
+                        Ok(description) => match description {
+                            Some(desciption) => {
+                                tracing::info!("{} {}", &file.display(), desciption)
+                            }
+                            None => tracing::warn!("{} No EXIF data found", &file.display()),
+                        },
+                        Err(e) => {
+                            error!("Error extracting EXIF from {}: {}", file.display(), e)
+                        }
+                    }
+                    drop(permit);
+                }));
             }
-            Err(e) => eprintln!("Error: {}", e),
+            Err(e) => error!("Error: {}", e),
+        }
+    }
+
+    // Await for all tasks to complete
+    while let Some(result) = tasks.next().await {
+        match result {
+            Ok(_) => {
+                // Task completed successfully, we could add additional logging here if needed
+            }
+            Err(e) => {
+                tracing::error!("Task failed: {:?}", e);
+            }
         }
     }
 
