@@ -19,7 +19,7 @@
                     "kind": "bin"
                 }
             },
-            "args": ["/mnt/data/Photos/photos/"],
+            "args": ["/mnt/data/Photos/photos/2022/pilatus/"],
             "cwd": "${workspaceFolder}"
         },
         {
