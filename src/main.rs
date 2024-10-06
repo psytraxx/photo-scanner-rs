@@ -1,24 +1,21 @@
 use anyhow::{anyhow, Result};
 use base64::{prelude::BASE64_STANDARD, Engine};
-use bytes::Bytes;
-use exif::experimental::Writer;
-use exif::{Field, In, Tag, Value};
 use futures::stream::{FuturesUnordered, Stream, StreamExt};
-use img_parts::jpeg::Jpeg;
-use img_parts::ImageEXIF;
+use little_exif::exif_tag::ExifTag;
+use little_exif::metadata::Metadata;
 use photo_scanner_rust::domain::ports::Chat;
 use photo_scanner_rust::outbound::openai::OpenAI;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
-use tokio::fs::{self, File};
-use tokio::io::AsyncReadExt;
 use tokio::sync::Semaphore;
-use tracing::error;
+use tokio::{fs::File, io::AsyncReadExt};
+use tracing::{debug, error, info};
+use xmp_toolkit::{OpenFileOptions, XmpFile, XmpMeta, XmpValue};
 
 // Function to list files in a directory and its subdirectories
 fn list_files(directory: PathBuf) -> Pin<Box<dyn Stream<Item = Result<PathBuf>> + Send>> {
-    let initial_read_dir = fs::read_dir(directory);
+    let initial_read_dir = tokio::fs::read_dir(directory);
 
     // Create an initial stream that will be used for recursion
     let stream = async_stream::try_stream! {
@@ -30,7 +27,7 @@ fn list_files(directory: PathBuf) -> Pin<Box<dyn Stream<Item = Result<PathBuf>> 
                 yield path;
             } else if path.is_dir() {
                 // Recursively list files in the subdirectory
-                let sub_stream = list_files(path.clone());
+                let sub_stream = list_files(path);
                 // Flatten the subdirectory stream into the current stream
                 for await sub_path in sub_stream {
                     yield sub_path?;
@@ -44,95 +41,99 @@ fn list_files(directory: PathBuf) -> Pin<Box<dyn Stream<Item = Result<PathBuf>> 
 }
 
 // Function to extract EXIF data from a file
-async fn process_image(path: &PathBuf) -> Result<Option<String>> {
-    // Open the file
-    let mut file = match File::open(path).await {
-        Ok(file) => file,
-        Err(e) => {
-            error!("Failed to open file {}: {}", path.display(), e);
-            return Ok(None);
+async fn extract_image_description(path: &PathBuf) -> Result<String> {
+    let chat: OpenAI = OpenAI::new();
+
+    // Convert extension to lowercase and check if it is "jpg" or "jpeg"
+    match path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_lowercase())
+    {
+        Some(ext) if ext == "jpg" || ext == "jpeg" => {}
+        _ => {
+            // If the file is not a JPEG/JPG, return Ok(None)
+            return Err(anyhow!("Not a JPEG file"));
         }
-    };
+    }
+
+    let mut file = File::open(path).await?;
 
     // Create a buffer to store the file content
     let mut buffer = Vec::new();
 
     // Read the entire file content into the buffer
-    match file.read_to_end(&mut buffer).await {
-        Ok(_) => (),
-        Err(e) => {
-            error!("Failed to read file {}: {}", path.display(), e);
-            return Ok(None);
-        }
-    };
-
-    // Try to parse EXIF data
-    let jpeg = match Jpeg::from_bytes(buffer.clone().into()) {
-        Ok(jpeg) => jpeg,
-        Err(e) => {
-            error!("Failed to read JPEG from {}: {}", path.display(), e);
-            return Ok(None);
-        }
-    };
-
-    let exif_bytes = match jpeg.exif() {
-        Some(exif) => exif,
-        None => {
-            error!("No Exif data found in {}", path.display());
-            return Ok(None);
-        }
-    };
-
-    let mut exif = match exif::parse_exif(&exif_bytes) {
-        Ok((data, success)) => {
-            if success {
-                data
-            } else {
-                error!("Failed to read Exif from {}", path.display());
-                return Ok(None);
-            }
-        }
-        Err(e) => {
-            error!("Failed to read JPEG from {}: {}", path.display(), e);
-            return Ok(None);
-        }
-    };
-
-    let chat: OpenAI = OpenAI::new();
+    file.read_to_end(&mut buffer).await?;
 
     let image_base64 = BASE64_STANDARD.encode(buffer);
+
     let folder_name: Option<String> = path
         .parent()
         .and_then(|p| p.file_name()?.to_str().map(|s| s.to_string()));
 
-    let description = chat.get_chat(image_base64, None, folder_name).await?;
-    // Add a new EXIF field (for example, a custom UserComment tag)
-    let field_description = Field {
-        tag: Tag::ImageDescription,
-        ifd_num: In::PRIMARY,
-        value: Value::Ascii(vec![description.as_bytes().to_vec()]),
+    chat.get_chat(image_base64, None, folder_name).await
+}
+
+async fn store_description_exif(path: &Path, description: &str) -> Result<()> {
+    let mut metadata = Metadata::new_from_path(path)?;
+    let ucs2_bytes: Vec<u8> = description
+        .encode_utf16()
+        .flat_map(|c| c.to_le_bytes()) // Convert each u16 to a 2-byte little-endian representation
+        .collect();
+    //https://exiftool.org/TagNames/EXIF.html
+    metadata.set_tag(ExifTag::UnknownUNDEF(
+        ucs2_bytes,
+        0x9c9c,
+        little_exif::exif_tag::ExifTagGroup::IFD0,
+    ));
+    metadata.write_to_file(path)?;
+    Ok(())
+}
+
+async fn store_description_xmp(path: &PathBuf, description: &str) -> Result<()> {
+    // Step 1: Open the JPEG file with XmpFile for reading and writing XMP metadata
+    let mut xmp_file = XmpFile::new()?;
+
+    xmp_file
+        .open_file(
+            path,
+            OpenFileOptions::default()
+                .only_xmp()
+                .for_update()
+                .use_smart_handler(),
+        )
+        .or_else(|_| {
+            xmp_file.open_file(
+                path,
+                OpenFileOptions::default()
+                    .only_xmp()
+                    .for_update()
+                    .use_packet_scanning(),
+            )
+        })?;
+
+    // Step 2: Try to extract existing XMP metadata
+    let mut xmp = if let Some(existing_xmp) = xmp_file.xmp() {
+        debug!("XMP metadata exists. Parsing it...");
+        existing_xmp
+    } else {
+        debug!("No XMP metadata found. Creating a new one.");
+        XmpMeta::new()?
     };
 
-    // Add or replace the field in the EXIF data
-    exif.push(field_description.clone());
+    /*  xmp.iter(IterOptions::default()).for_each(|p| {
+        info!("{:?}", p);
+    });*/
 
-    let mut writer = Writer::new();
-    let exif_ref: &Vec<Field> = exif.as_ref();
-    for f in exif_ref.iter() {
-        writer.push_field(f);
-    }
+    xmp.delete_property(xmp_toolkit::xmp_ns::DC, "description")?;
 
-    let mut new_exif_bytes = std::io::Cursor::new(Vec::new());
-    writer.write(&mut new_exif_bytes, false)?;
-    let new_exif_bytes = new_exif_bytes.into_inner();
+    let new_value: XmpValue<String> = XmpValue::new(description.into());
+    xmp.set_property(xmp_toolkit::xmp_ns::DC, "description", &new_value)?;
 
-    let mut new_jpeg = jpeg.clone();
-    new_jpeg.set_exif(Some(Bytes::from(new_exif_bytes)));
+    xmp_file.put_xmp(&xmp)?;
+    xmp_file.close();
 
-    let output_file = std::fs::File::create("/home/eric/updated_image2.jpg")?;
-    new_jpeg.encoder().write_to(output_file)?;
-
-    Ok(Some(description))
+    Ok(())
 }
 
 #[tokio::main]
@@ -162,17 +163,42 @@ async fn main() -> Result<()> {
         match file_result {
             Ok(file) => {
                 let semaphore = Arc::clone(&semaphore);
+
                 tasks.push(tokio::spawn(async move {
                     let permit = semaphore.acquire().await.unwrap();
-                    match process_image(&file).await {
-                        Ok(description) => match description {
-                            Some(desciption) => {
-                                tracing::info!("{} {}", &file.display(), desciption)
+                    match extract_image_description(&file).await {
+                        Ok(description) => {
+                            match store_description_xmp(&file, &description).await {
+                                Ok(_) => {
+                                    info!("Wrote XMP {} {}", &file.display(), &description)
+                                }
+                                Err(e) => {
+                                    error!(
+                                        "Error storing XMP description for {}: {}",
+                                        &file.display(),
+                                        e
+                                    )
+                                }
                             }
-                            None => tracing::warn!("{} No EXIF data found", &file.display()),
-                        },
+                            match store_description_exif(&file, &description).await {
+                                Ok(_) => {
+                                    info!("Wrote EXIF {} {}", &file.display(), &description)
+                                }
+                                Err(e) => {
+                                    error!(
+                                        "Error storing EXIF description for {}: {}",
+                                        &file.display(),
+                                        e
+                                    )
+                                }
+                            }
+                        }
                         Err(e) => {
-                            error!("Error extracting EXIF from {}: {}", file.display(), e)
+                            error!(
+                                "Error extracting image description from {}: {}",
+                                &file.display(),
+                                e
+                            )
                         }
                     }
                     drop(permit);
