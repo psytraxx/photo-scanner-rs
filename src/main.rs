@@ -1,11 +1,9 @@
 use anyhow::{anyhow, Result};
 use base64::{prelude::BASE64_STANDARD, Engine};
 use futures::stream::{FuturesUnordered, Stream, StreamExt};
-use little_exif::exif_tag::ExifTag;
-use little_exif::metadata::Metadata;
 use photo_scanner_rust::domain::ports::Chat;
 use photo_scanner_rust::outbound::openai::OpenAI;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
@@ -120,16 +118,6 @@ async fn store_description_xmp(path: &PathBuf, description: String) -> Result<()
     Ok(())
 }
 
-fn store_description_exif(path: &Path, description: String) -> Result<()> {
-    let mut metadata = Metadata::new_from_path(path)?;
-
-    metadata.set_tag(ExifTag::ImageDescription(description.to_string()));
-
-    metadata.write_to_file(path)?;
-
-    Ok(())
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -169,18 +157,6 @@ async fn main() -> Result<()> {
                                 Err(e) => {
                                     error!(
                                         "Error storing XMP description for {}: {}",
-                                        &file.display(),
-                                        e
-                                    )
-                                }
-                            }
-                            match store_description_exif(&file, description.clone()) {
-                                Ok(_) => {
-                                    info!("Wrote EXIF {} {}", &file.display(), description)
-                                }
-                                Err(e) => {
-                                    error!(
-                                        "Error storing EXIF description for {}: {}",
                                         &file.display(),
                                         e
                                     )

@@ -14,4 +14,3 @@ futures = "0.3.31"
 async-stream = "0.3.6"
 async-trait = "0.1.83"
 xmp_toolkit = { version = "1.9.1", features = ["chrono"] }
-little_exif = "0.4.3"
