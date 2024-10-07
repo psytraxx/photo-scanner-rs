@@ -1,14 +1,16 @@
 use anyhow::{anyhow, Result};
 use base64::{prelude::BASE64_STANDARD, Engine};
 use futures::stream::{FuturesUnordered, Stream, StreamExt};
+use little_exif::exif_tag::ExifTag;
+use little_exif::metadata::Metadata;
 use photo_scanner_rust::domain::ports::Chat;
 use photo_scanner_rust::outbound::openai::OpenAI;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tokio::{fs::File, io::AsyncReadExt};
-use tracing::{error, info};
+use tracing::{debug, error, info};
 use xmp_toolkit::{OpenFileOptions, XmpFile, XmpMeta, XmpValue};
 
 // Function to list files in a directory and its subdirectories
@@ -39,7 +41,7 @@ fn list_files(directory: PathBuf) -> Pin<Box<dyn Stream<Item = Result<PathBuf>> 
 }
 
 // Function to extract EXIF data from a file
-async fn extract_image_description(path: &PathBuf) -> Result<Option<String>> {
+async fn extract_image_description(path: &PathBuf) -> Result<String> {
     let chat: OpenAI = OpenAI::new();
 
     // Convert extension to lowercase and check if it is "jpg" or "jpeg"
@@ -51,29 +53,17 @@ async fn extract_image_description(path: &PathBuf) -> Result<Option<String>> {
         Some(ext) if ext == "jpg" || ext == "jpeg" => {}
         _ => {
             // If the file is not a JPEG/JPG, return Ok(None)
-            return Ok(None);
+            return Err(anyhow!("Not a JPEG file"));
         }
     }
 
-    let mut file = match File::open(path).await {
-        Ok(file) => file,
-        Err(e) => {
-            error!("Failed to open file {}: {}", path.display(), e);
-            return Ok(None);
-        }
-    };
+    let mut file = File::open(path).await?;
 
     // Create a buffer to store the file content
     let mut buffer = Vec::new();
 
     // Read the entire file content into the buffer
-    match file.read_to_end(&mut buffer).await {
-        Ok(_) => (),
-        Err(e) => {
-            error!("Failed to read file {}: {}", path.display(), e);
-            return Ok(None);
-        }
-    };
+    file.read_to_end(&mut buffer).await?;
 
     let image_base64 = BASE64_STANDARD.encode(buffer);
 
@@ -81,9 +71,63 @@ async fn extract_image_description(path: &PathBuf) -> Result<Option<String>> {
         .parent()
         .and_then(|p| p.file_name()?.to_str().map(|s| s.to_string()));
 
-    let description = chat.get_chat(image_base64, None, folder_name).await?;
+    chat.get_chat(image_base64, None, folder_name).await
+}
 
-    Ok(Some(description))
+async fn store_description_xmp(path: &PathBuf, description: String) -> Result<()> {
+    // Step 1: Open the JPEG file with XmpFile for reading and writing XMP metadata
+    let mut xmp_file = XmpFile::new()?;
+
+    xmp_file
+        .open_file(
+            path,
+            OpenFileOptions::default()
+                .only_xmp()
+                .for_update()
+                .use_smart_handler(),
+        )
+        .or_else(|_| {
+            xmp_file.open_file(
+                path,
+                OpenFileOptions::default()
+                    .only_xmp()
+                    .for_update()
+                    .use_packet_scanning(),
+            )
+        })?;
+
+    // Step 2: Try to extract existing XMP metadata
+    let mut xmp = if let Some(existing_xmp) = xmp_file.xmp() {
+        debug!("XMP metadata exists. Parsing it...");
+        existing_xmp
+    } else {
+        debug!("No XMP metadata found. Creating a new one.");
+        XmpMeta::new()?
+    };
+
+    /*  xmp.iter(IterOptions::default()).for_each(|p| {
+        info!("{:?}", p);
+    });*/
+
+    xmp.delete_property(xmp_toolkit::xmp_ns::DC, "description")?;
+
+    let new_value: XmpValue<String> = XmpValue::new(description.clone());
+    xmp.set_property(xmp_toolkit::xmp_ns::DC, "description", &new_value)?;
+
+    xmp_file.put_xmp(&xmp)?;
+    xmp_file.close();
+
+    Ok(())
+}
+
+fn store_description_exif(path: &Path, description: String) -> Result<()> {
+    let mut metadata = Metadata::new_from_path(path)?;
+
+    metadata.set_tag(ExifTag::ImageDescription(description.to_string()));
+
+    metadata.write_to_file(path)?;
+
+    Ok(())
 }
 
 #[tokio::main]
@@ -113,28 +157,42 @@ async fn main() -> Result<()> {
         match file_result {
             Ok(file) => {
                 let semaphore = Arc::clone(&semaphore);
+
                 tasks.push(tokio::spawn(async move {
                     let permit = semaphore.acquire().await.unwrap();
                     match extract_image_description(&file).await {
-                        Ok(description) => match description {
-                            Some(description) => {
-                                match store_description_xmp(&file, description.clone()).await {
-                                    Ok(_) => {
-                                        tracing::info!("{} {}", &file.display(), description)
-                                    }
-                                    Err(e) => {
-                                        error!(
-                                            "Error storing XMP description for {}: {}",
-                                            &file.display(),
-                                            e
-                                        )
-                                    }
+                        Ok(description) => {
+                            match store_description_xmp(&file, description.clone()).await {
+                                Ok(_) => {
+                                    info!("Wrote XMP {} {}", &file.display(), description)
+                                }
+                                Err(e) => {
+                                    error!(
+                                        "Error storing XMP description for {}: {}",
+                                        &file.display(),
+                                        e
+                                    )
                                 }
                             }
-                            None => tracing::warn!("Skipping processing of {}", &file.display()),
-                        },
+                            match store_description_exif(&file, description.clone()) {
+                                Ok(_) => {
+                                    info!("Wrote EXIF {} {}", &file.display(), description)
+                                }
+                                Err(e) => {
+                                    error!(
+                                        "Error storing EXIF description for {}: {}",
+                                        &file.display(),
+                                        e
+                                    )
+                                }
+                            }
+                        }
                         Err(e) => {
-                            error!("Error extracting EXIF from {}: {}", &file.display(), e)
+                            error!(
+                                "Error extracting image description from {}: {}",
+                                &file.display(),
+                                e
+                            )
                         }
                     }
                     drop(permit);
@@ -155,52 +213,6 @@ async fn main() -> Result<()> {
             }
         }
     }
-
-    Ok(())
-}
-
-async fn store_description_xmp(path: &PathBuf, description: String) -> Result<()> {
-    // Step 1: Open the JPEG file with XmpFile for reading and writing XMP metadata
-    let mut xmp_file = XmpFile::new()?;
-
-    xmp_file
-        .open_file(
-            path,
-            OpenFileOptions::default()
-                .only_xmp()
-                .for_update()
-                .use_smart_handler(),
-        )
-        .or_else(|_| {
-            xmp_file.open_file(
-                path,
-                OpenFileOptions::default()
-                    .only_xmp()
-                    .for_update()
-                    .use_packet_scanning(),
-            )
-        })?;
-
-    // Step 2: Try to extract existing XMP metadata
-    let mut xmp = if let Some(existing_xmp) = xmp_file.xmp() {
-        info!("XMP metadata exists. Parsing it...");
-        existing_xmp
-    } else {
-        info!("No XMP metadata found. Creating a new one.");
-        XmpMeta::new()?
-    };
-
-    /*  xmp.iter(IterOptions::default()).for_each(|p| {
-        info!("{:?}", p);
-    });*/
-
-    xmp.delete_property(xmp_toolkit::xmp_ns::DC, "description")?;
-
-    let new_value: XmpValue<String> = XmpValue::new(description.clone());
-    xmp.set_property(xmp_toolkit::xmp_ns::DC, "description", &new_value)?;
-
-    xmp_file.put_xmp(&xmp)?;
-    xmp_file.close();
 
     Ok(())
 }

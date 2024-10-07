@@ -38,7 +38,7 @@
                     "kind": "bin"
                 }
             },
-            "args": ["/mnt/data/Photos/photos/2011/Peru/"],
+            "args": ["/home/eric/Desktop/sizilien/"],
             "cwd": "${workspaceFolder}"
         }
     ]
