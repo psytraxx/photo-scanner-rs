@@ -27,7 +27,7 @@ fn list_files(directory: PathBuf) -> Pin<Box<dyn Stream<Item = Result<PathBuf>> 
                 yield path;
             } else if path.is_dir() {
                 // Recursively list files in the subdirectory
-                let sub_stream = list_files(path.clone());
+                let sub_stream = list_files(path);
                 // Flatten the subdirectory stream into the current stream
                 for await sub_path in sub_stream {
                     yield sub_path?;

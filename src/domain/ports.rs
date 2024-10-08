@@ -1,5 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use std::vec::Vec;
 
 #[async_trait]
 pub trait Chat: Sync + Send {
@@ -10,5 +11,5 @@ pub trait Chat: Sync + Send {
         folder_name: Option<String>,
     ) -> Result<String>;
 
-    async fn get_embedding(&self, text: &str) -> Result<std::vec::Vec<f32>>;
+    async fn get_embedding(&self, text: &str) -> Result<Vec<f32>>;
 }

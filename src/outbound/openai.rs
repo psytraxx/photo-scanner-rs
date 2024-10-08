@@ -10,6 +10,7 @@ use async_openai::{
     },
 };
 use async_trait::async_trait;
+use std::vec::Vec;
 
 const EMBEDDING_MODEL: &str = "mxbai-embed-large";
 const BASE_URL: &str = "http://localhost:11434/v1";
@@ -117,7 +118,7 @@ impl Chat for OpenAI {
         Ok(process_openai_response(response))
     }
 
-    async fn get_embedding(&self, text: &str) -> Result<std::vec::Vec<f32>> {
+    async fn get_embedding(&self, text: &str) -> Result<Vec<f32>> {
         let request = CreateEmbeddingRequest {
             model: EMBEDDING_MODEL.into(),
             input: EmbeddingInput::String(text.into()),
@@ -133,8 +134,8 @@ impl Chat for OpenAI {
             };
 
         // Extract the first embedding vector from the response
-        let embedding = response.data[0].embedding.clone();
-        Ok(embedding)
+        let embedding = &response.data[0].embedding;
+        Ok(embedding.clone())
     }
 }
 
