@@ -1,17 +1,15 @@
 use anyhow::{anyhow, Result};
 use base64::{prelude::BASE64_STANDARD, Engine};
 use futures::stream::{FuturesUnordered, Stream, StreamExt};
-use little_exif::exif_tag::ExifTag;
-use little_exif::metadata::Metadata;
-use photo_scanner_rust::domain::ports::Chat;
+use photo_scanner_rust::domain::ports::{Chat, FileMeta};
+use photo_scanner_rust::outbound;
 use photo_scanner_rust::outbound::openai::OpenAI;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tokio::{fs::File, io::AsyncReadExt};
-use tracing::{debug, error, info};
-use xmp_toolkit::{OpenFileOptions, XmpFile, XmpMeta, XmpValue};
+use tracing::{error, info};
 
 // Function to list files in a directory and its subdirectories
 fn list_files(directory: PathBuf) -> Pin<Box<dyn Stream<Item = Result<PathBuf>> + Send>> {
@@ -74,68 +72,6 @@ async fn extract_image_description(path: &PathBuf) -> Result<String> {
     chat.get_chat(image_base64, None, folder_name).await
 }
 
-async fn store_description_exif(path: &Path, description: &str) -> Result<()> {
-    let mut metadata = Metadata::new_from_path(path)?;
-    let ucs2_bytes: Vec<u8> = description
-        .encode_utf16()
-        .flat_map(|c| c.to_le_bytes()) // Convert each u16 to a 2-byte little-endian representation
-        .collect();
-    //https://exiftool.org/TagNames/EXIF.html
-    metadata.set_tag(ExifTag::UnknownUNDEF(
-        ucs2_bytes,
-        0x9c9c,
-        little_exif::exif_tag::ExifTagGroup::IFD0,
-    ));
-    metadata.write_to_file(path)?;
-    Ok(())
-}
-
-async fn store_description_xmp(path: &PathBuf, description: &str) -> Result<()> {
-    // Step 1: Open the JPEG file with XmpFile for reading and writing XMP metadata
-    let mut xmp_file = XmpFile::new()?;
-
-    xmp_file
-        .open_file(
-            path,
-            OpenFileOptions::default()
-                .only_xmp()
-                .for_update()
-                .use_smart_handler(),
-        )
-        .or_else(|_| {
-            xmp_file.open_file(
-                path,
-                OpenFileOptions::default()
-                    .only_xmp()
-                    .for_update()
-                    .use_packet_scanning(),
-            )
-        })?;
-
-    // Step 2: Try to extract existing XMP metadata
-    let mut xmp = if let Some(existing_xmp) = xmp_file.xmp() {
-        debug!("XMP metadata exists. Parsing it...");
-        existing_xmp
-    } else {
-        debug!("No XMP metadata found. Creating a new one.");
-        XmpMeta::new()?
-    };
-
-    /*  xmp.iter(IterOptions::default()).for_each(|p| {
-        info!("{:?}", p);
-    });*/
-
-    xmp.delete_property(xmp_toolkit::xmp_ns::DC, "description")?;
-
-    let new_value: XmpValue<String> = XmpValue::new(description.into());
-    xmp.set_property(xmp_toolkit::xmp_ns::DC, "description", &new_value)?;
-
-    xmp_file.put_xmp(&xmp)?;
-    xmp_file.close();
-
-    Ok(())
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -168,7 +104,8 @@ async fn main() -> Result<()> {
                     let permit = semaphore.acquire().await.unwrap();
                     match extract_image_description(&file).await {
                         Ok(description) => {
-                            match store_description_xmp(&file, &description).await {
+                            let xmp = outbound::xmp::XMP {};
+                            match xmp.write(&description, &file).await {
                                 Ok(_) => {
                                     info!("Wrote XMP {} {}", &file.display(), &description)
                                 }
@@ -180,7 +117,8 @@ async fn main() -> Result<()> {
                                     )
                                 }
                             }
-                            match store_description_exif(&file, &description).await {
+                            let xmp = outbound::exif::EXIF {};
+                            match xmp.write(&description, &file).await {
                                 Ok(_) => {
                                     info!("Wrote EXIF {} {}", &file.display(), &description)
                                 }
