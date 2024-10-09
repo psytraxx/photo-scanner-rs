@@ -25,3 +25,9 @@ cargo run --release /mnt/data/Photos/photos/2023/sizilien
 
 
 exiftool -Exif:XPComment -r /mnt/data/Photos/photos/
+
+
+
+
+
+672x672

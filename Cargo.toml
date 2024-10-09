@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.89"
-async-openai = "0.24.1"
+async-openai = "0.25.0"
 base64 = "0.22.1"
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
@@ -14,4 +14,4 @@ futures = "0.3.31"
 async-stream = "0.3.6"
 async-trait = "0.1.83"
 xmp_toolkit = { version = "1.9.1", features = ["chrono"] }
-little_exif = "0.5.0"
+little_exif = "0.5.1"

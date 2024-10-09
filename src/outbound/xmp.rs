@@ -46,8 +46,6 @@ impl FileMeta for XMP {
             info!("{:?}", p);
         });*/
 
-        xmp.delete_property(xmp_toolkit::xmp_ns::DC, "description")?;
-
         let new_value: XmpValue<String> = XmpValue::new(text.into());
         xmp.set_property(xmp_toolkit::xmp_ns::DC, "description", &new_value)?;
 
