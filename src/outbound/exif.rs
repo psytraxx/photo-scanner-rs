@@ -1,15 +1,10 @@
 use std::{char::decode_utf16, path::Path};
 
-use crate::domain::ports::FileMeta;
 use anyhow::{anyhow, Result};
-use async_trait::async_trait;
 use little_exif::{endian::Endian, exif_tag::ExifTag, metadata::Metadata};
-use tracing::{debug, info};
+use tracing::debug;
 
 const XP_COMMENT: u16 = 0x9C9C;
-
-#[derive(Debug, Clone)]
-pub struct EXIF {}
 
 /// Converts a byte slice in UCS-2 little-endian format to a String.
 fn ucs2_little_endian_to_string(bytes: &[u8]) -> Result<String> {
@@ -36,28 +31,25 @@ fn string_to_ucs2_little_endian(input: &str) -> Vec<u8> {
         .collect()
 }
 
-#[async_trait]
-impl FileMeta for EXIF {
-    async fn write(&self, text: &str, path: &Path) -> Result<()> {
-        let mut metadata = Metadata::new_from_path(path)?;
+pub fn write_exif_description(text: &str, path: &Path) -> Result<()> {
+    let mut metadata = Metadata::new_from_path(path)?;
 
-        match metadata.get_tag_by_hex(XP_COMMENT) {
-            Some(tag) => {
-                let comment = ucs2_little_endian_to_string(&tag.value_as_u8_vec(&Endian::Little));
-                info!("Tag already exists: {:?}", comment);
-            }
-            None => {
-                debug!("Tag does not exist");
-            }
+    match metadata.get_tag_by_hex(XP_COMMENT) {
+        Some(tag) => {
+            let comment = ucs2_little_endian_to_string(&tag.value_as_u8_vec(&Endian::Little));
+            debug!("Tag already exists: {:?}", comment);
         }
-
-        metadata.set_tag(ExifTag::UnknownINT8U(
-            string_to_ucs2_little_endian(text),
-            XP_COMMENT,
-            little_exif::exif_tag::ExifTagGroup::IFD0,
-        ));
-
-        metadata.write_to_file(path)?;
-        Ok(())
+        None => {
+            debug!("Tag does not exist");
+        }
     }
+
+    metadata.set_tag(ExifTag::UnknownINT8U(
+        string_to_ucs2_little_endian(text),
+        XP_COMMENT,
+        little_exif::exif_tag::ExifTagGroup::IFD0,
+    ));
+
+    metadata.write_to_file(path)?;
+    Ok(())
 }

@@ -68,7 +68,7 @@ impl Chat for OpenAI {
                     .build()?
                     .into(),
                 ChatCompletionRequestUserMessageArgs::default()
-                    .content("Ensure the description is concise, engaging, and not long. Use a maxium of 20 to 30 words.")
+                    .content("Ensure the description is concise, engaging, and not long. Use a maxium 2 sentences.")
                     .build()?
                     .into(),
                 ChatCompletionRequestUserMessageArgs::default()
