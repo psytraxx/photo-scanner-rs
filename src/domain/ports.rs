@@ -6,9 +6,9 @@ use std::vec::Vec;
 pub trait Chat: Sync + Send {
     async fn get_chat(
         &self,
-        image_base64: String,
-        geo_location: Option<String>,
-        folder_name: Option<String>,
+        image_base64: &str,
+        persons: &[String],
+        folder_name: &Option<String>,
     ) -> Result<String>;
 
     async fn get_embedding(&self, text: &str) -> Result<Vec<f32>>;

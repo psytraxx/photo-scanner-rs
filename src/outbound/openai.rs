@@ -14,7 +14,8 @@ use std::vec::Vec;
 
 const EMBEDDING_MODEL: &str = "mxbai-embed-large";
 const BASE_URL: &str = "http://localhost:11434/v1";
-const CHAT_MODEL: &str = "llava:13b";
+//const CHAT_MODEL: &str = "llava:13b";
+const CHAT_MODEL: &str = "llava:7b-v1.6-mistral-q5_1";
 
 #[derive(Debug, Clone)]
 pub struct OpenAI {
@@ -40,9 +41,9 @@ impl Default for OpenAI {
 impl Chat for OpenAI {
     async fn get_chat(
         &self,
-        image: String,
-        geo_location: Option<String>,
-        folder_name: Option<String>,
+        image: &str,
+        persons: &[String],
+        folder_name: &Option<String>,
     ) -> Result<String> {
         let mut messages = vec![
                 ChatCompletionRequestUserMessageArgs::default()
@@ -81,10 +82,10 @@ impl Chat for OpenAI {
                     .into(),
             ];
 
-        if geo_location.is_some() {
+        if !persons.is_empty() {
             let message_content = format!(
-                "Use the geolocation {} as a hint where this photo was taken when generating the image summary",
-                geo_location.as_ref().unwrap()
+                "Use the person(s) {} as a hint who is in the photo when generating the image summary",
+                persons.join(", ")
             );
 
             let message = ChatCompletionRequestUserMessageArgs::default()
