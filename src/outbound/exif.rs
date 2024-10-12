@@ -34,16 +34,6 @@ fn string_to_ucs2_little_endian(input: &str) -> Vec<u8> {
 pub fn write_exif_description(text: &str, path: &Path) -> Result<()> {
     let mut metadata = Metadata::new_from_path(path)?;
 
-    match metadata.get_tag_by_hex(XP_COMMENT) {
-        Some(tag) => {
-            let comment = ucs2_little_endian_to_string(&tag.value_as_u8_vec(&Endian::Little));
-            debug!("Tag already exists: {:?}", comment);
-        }
-        None => {
-            debug!("Tag does not exist");
-        }
-    }
-
     metadata.set_tag(ExifTag::UnknownINT8U(
         string_to_ucs2_little_endian(text),
         XP_COMMENT,
@@ -52,4 +42,20 @@ pub fn write_exif_description(text: &str, path: &Path) -> Result<()> {
 
     metadata.write_to_file(path)?;
     Ok(())
+}
+
+pub fn get_exif_description(path: &Path) -> Result<Option<String>> {
+    let metadata = Metadata::new_from_path(path)?;
+
+    match metadata.get_tag_by_hex(XP_COMMENT) {
+        Some(tag) => {
+            let comment = ucs2_little_endian_to_string(&tag.value_as_u8_vec(&Endian::Little))?;
+            debug!("Tag already exists: {:?}", comment);
+            Ok(Some(comment))
+        }
+        None => {
+            debug!("Tag does not exist");
+            Ok(None)
+        }
+    }
 }

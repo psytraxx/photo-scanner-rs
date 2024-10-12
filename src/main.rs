@@ -1,7 +1,8 @@
 use anyhow::{anyhow, Result};
-use futures::stream::{FuturesUnordered, Stream, StreamExt};
+use futures::future::join_all;
+use futures::stream::{Stream, StreamExt};
 use photo_scanner_rust::domain::ports::Chat;
-use photo_scanner_rust::outbound::exif::write_exif_description;
+use photo_scanner_rust::outbound::exif::{get_exif_description, write_exif_description};
 use photo_scanner_rust::outbound::image_provider::resize_and_base64encode_image;
 use photo_scanner_rust::outbound::openai::OpenAI;
 use photo_scanner_rust::outbound::xmp::{extract_persons, write_xmp_description};
@@ -9,8 +10,9 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
+use tokio::spawn;
 use tokio::sync::Semaphore;
-use tracing::{debug, error, info};
+use tracing::{error, info};
 
 // Maximum number of concurrent tasks for ollama multimodal API
 const MAX_CONCURRENT_TASKS: usize = 1;
@@ -50,8 +52,11 @@ fn is_jpeg(path: &Path) -> bool {
 }
 
 // Function to extract EXIF data from a file
-async fn extract_image_description(path: &Path, persons: &[String]) -> Result<String> {
-    let chat: OpenAI = OpenAI::new();
+async fn extract_image_description<T: Chat>(
+    chat: &T,
+    path: &Path,
+    persons: &[String],
+) -> Result<String> {
     let image_base64 = resize_and_base64encode_image(path).unwrap();
 
     let folder_name: Option<String> = path
@@ -81,93 +86,120 @@ async fn main() -> Result<()> {
     let mut files_stream = list_files(root_path);
 
     let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_TASKS));
-    let mut tasks = FuturesUnordered::new();
+    let mut tasks = Vec::new();
 
     while let Some(file_result) = files_stream.next().await {
-        match file_result {
-            Ok(path) => {
-                if !is_jpeg(&path) {
-                    // Skip files that are not JPEG
-                    continue;
-                }
-
-                let semaphore = Arc::clone(&semaphore);
-
-                tasks.push(tokio::spawn(async move {
-                    let permit = semaphore.acquire().await.unwrap();
-
-                    let start_time = Instant::now();
-
-                    // Extract persons from the file
-                    let persons = match extract_persons(&path) {
-                        Ok(persons) => persons,
-                        Err(e) => {
-                            error!("Error extracting persons from {}: {}", &path.display(), e);
-                            Vec::new()
-                        }
-                    };
-
-                    match extract_image_description(&path, &persons).await {
-                        Ok(description) => {
-                            let duration = Instant::now() - start_time;
-                            info!(
-                                "Description for {}: {} Time taken: {:.2} seconds",
-                                &path.display(),
-                                &description,
-                                duration.as_secs_f64()
-                            );
-                            match write_xmp_description(&description, &path) {
-                                Ok(_) => {
-                                    debug!("Wrote XMP {} {}", &path.display(), &description)
-                                }
-                                Err(e) => {
-                                    error!(
-                                        "Error storing XMP description for {}: {}",
-                                        &path.display(),
-                                        e
-                                    )
-                                }
-                            }
-
-                            match write_exif_description(&description, &path) {
-                                Ok(_) => {
-                                    debug!("Wrote EXIF {} {}", &path.display(), &description)
-                                }
-                                Err(e) => {
-                                    error!(
-                                        "Error storing EXIF description for {}: {}",
-                                        &path.display(),
-                                        e
-                                    )
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            error!(
-                                "Error extracting image description from {}: {}",
-                                &path.display(),
-                                e
-                            )
-                        }
-                    }
-                    drop(permit);
-                }));
-            }
-            Err(e) => error!("Error: {}", e),
-        }
-    }
-
-    // Await for all tasks to complete
-    while let Some(result) = tasks.next().await {
-        match result {
-            Ok(_) => {
-                // Task completed successfully, we could add additional logging here if needed
-            }
+        let path = match file_result {
+            Ok(path) => path,
             Err(e) => {
-                tracing::error!("Task failed: {:?}", e);
+                error!("Error: {}", e);
+                continue;
             }
-        }
+        };
+
+        let semaphore = Arc::clone(&semaphore);
+        let chat: OpenAI = OpenAI::new();
+
+        let task = spawn(async move {
+            let permit = match semaphore.acquire().await {
+                Ok(permit) => permit,
+                Err(e) => {
+                    error!("Failed to acquire semaphore for {}: {}", path.display(), e);
+                    return;
+                }
+            };
+
+            if !is_jpeg(&path) {
+                drop(permit);
+                return;
+            }
+
+            // Check if the EXIF description already exists and skip the file if it does.
+            match get_exif_description(&path) {
+                Ok(Some(description)) => {
+                    info!(
+                        "Description \"{}\" exists for \"{}\"",
+                        &description,
+                        &path.display()
+                    );
+                    drop(permit);
+                    return;
+                }
+                Ok(None) => {
+                    // Continue code execution if there is no description
+                }
+                Err(e) => {
+                    error!(
+                        "Error getting EXIF description for {}: {}",
+                        &path.display(),
+                        &e
+                    );
+                    drop(permit);
+                    return;
+                }
+            }
+
+            let start_time = Instant::now();
+
+            let persons = match extract_persons(&path) {
+                Ok(persons) => persons,
+                Err(e) => {
+                    error!("Error extracting persons from {}: {}", &path.display(), &e);
+                    drop(permit);
+                    return;
+                }
+            };
+
+            let description = match extract_image_description(&chat, &path, &persons).await {
+                Ok(description) => description,
+                Err(e) => {
+                    error!(
+                        "Error extracting image description from {}: {}",
+                        &path.display(),
+                        &e
+                    );
+                    drop(permit);
+                    return;
+                }
+            };
+
+            let duration = Instant::now() - start_time;
+            info!(
+                "Generated \"{}\" for \"{}\", Time taken: {:.2} seconds, Persons: {:?}",
+                &description,
+                &path.display(),
+                duration.as_secs_f64(),
+                &persons
+            );
+
+            /* if let Err(e) = chat.get_embedding(&description).await {
+                error!("Error getting embedding for {}: {}", &path.display(), e);
+            }
+
+            if let Err(e) = write_xmp_description(&description, &path) {
+                error!(
+                    "Error storing XMP description for {}: {}",
+                    path.display(),
+                    e
+                );
+            }*/
+
+            if let Err(e) = write_exif_description(&description, &path) {
+                error!(
+                    "Error storing EXIF description for {}: {}",
+                    path.display(),
+                    e
+                );
+            }
+
+            drop(permit);
+        });
+
+        tasks.push(task)
     }
+
+    // Wait for all the tasks to complete before exiting the method.
+    join_all(tasks).await;
 
     Ok(())
 }

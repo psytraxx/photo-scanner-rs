@@ -20,7 +20,7 @@
                 }
             },
             "args": [
-                "testdata/sizilien"
+                "testdata"
             ],
             "cwd": "${workspaceFolder}"
         },
@@ -41,7 +41,7 @@
                 }
             },
             "args": [
-                "/home/eric/Desktop/sizilien/"
+                "testdata"
             ],
             "cwd": "${workspaceFolder}"
         }
