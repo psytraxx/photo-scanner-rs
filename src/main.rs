@@ -2,20 +2,21 @@ use anyhow::{anyhow, Result};
 use futures::future::join_all;
 use futures::stream::{Stream, StreamExt};
 use photo_scanner_rust::domain::ports::Chat;
-use photo_scanner_rust::outbound::exif::{get_exif_description, write_exif_description};
 use photo_scanner_rust::outbound::image_provider::resize_and_base64encode_image;
 use photo_scanner_rust::outbound::openai::OpenAI;
-use photo_scanner_rust::outbound::xmp::{extract_persons, write_xmp_description};
+use photo_scanner_rust::outbound::xmp::{
+    extract_persons, get_xmp_description, write_xmp_description,
+};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::spawn;
 use tokio::sync::Semaphore;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 // Maximum number of concurrent tasks for ollama multimodal API
-const MAX_CONCURRENT_TASKS: usize = 1;
+const MAX_CONCURRENT_TASKS: usize = 2;
 
 // Function to list files in a directory and its subdirectories
 fn list_files(directory: PathBuf) -> Pin<Box<dyn Stream<Item = Result<PathBuf>> + Send>> {
@@ -51,20 +52,6 @@ fn is_jpeg(path: &Path) -> bool {
     }
 }
 
-// Function to extract EXIF data from a file
-async fn extract_image_description<T: Chat>(
-    chat: &T,
-    path: &Path,
-    persons: &[String],
-) -> Result<String> {
-    let image_base64 = resize_and_base64encode_image(path).unwrap();
-
-    let folder_name: Option<String> = path
-        .parent()
-        .and_then(|p| p.file_name()?.to_str().map(|s| s.to_string()));
-    chat.get_chat(&image_base64, persons, &folder_name).await
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -97,6 +84,11 @@ async fn main() -> Result<()> {
             }
         };
 
+        // no need to create a task if it can be skipped
+        if can_be_skipped(&path) {
+            continue;
+        }
+
         let semaphore = Arc::clone(&semaphore);
         let chat: OpenAI = OpenAI::new();
 
@@ -109,48 +101,22 @@ async fn main() -> Result<()> {
                 }
             };
 
-            if !is_jpeg(&path) {
-                drop(permit);
-                return;
-            }
-
-            // Check if the EXIF description already exists and skip the file if it does.
-            match get_exif_description(&path) {
-                Ok(Some(description)) => {
-                    info!(
-                        "Description \"{}\" exists for \"{}\"",
-                        &description,
-                        &path.display()
-                    );
-                    drop(permit);
-                    return;
-                }
-                Ok(None) => {
-                    // Continue code execution if there is no description
-                }
-                Err(e) => {
-                    error!(
-                        "Error getting EXIF description for {}: {}",
-                        &path.display(),
-                        &e
-                    );
-                    drop(permit);
-                    return;
-                }
-            }
-
-            let start_time = Instant::now();
-
             let persons = match extract_persons(&path) {
                 Ok(persons) => persons,
                 Err(e) => {
-                    error!("Error extracting persons from {}: {}", &path.display(), &e);
-                    drop(permit);
-                    return;
+                    warn!("Error extracting persons from {}: {}", &path.display(), &e);
+                    Vec::new()
                 }
             };
 
-            let description = match extract_image_description(&chat, &path, &persons).await {
+            let image_base64 = resize_and_base64encode_image(&path).unwrap();
+
+            let folder_name: Option<String> = path
+                .parent()
+                .and_then(|p| p.file_name()?.to_str().map(|s| s.to_string()));
+
+            let start_time = Instant::now();
+            let description = match chat.get_chat(&image_base64, &persons, &folder_name).await {
                 Ok(description) => description,
                 Err(e) => {
                     error!(
@@ -172,21 +138,13 @@ async fn main() -> Result<()> {
                 &persons
             );
 
-            /* if let Err(e) = chat.get_embedding(&description).await {
+            if let Err(e) = chat.get_embedding(&description).await {
                 error!("Error getting embedding for {}: {}", &path.display(), e);
             }
 
             if let Err(e) = write_xmp_description(&description, &path) {
                 error!(
                     "Error storing XMP description for {}: {}",
-                    path.display(),
-                    e
-                );
-            }*/
-
-            if let Err(e) = write_exif_description(&description, &path) {
-                error!(
-                    "Error storing EXIF description for {}: {}",
                     path.display(),
                     e
                 );
@@ -199,7 +157,45 @@ async fn main() -> Result<()> {
     }
 
     // Wait for all the tasks to complete before exiting the method.
-    join_all(tasks).await;
+    let results = join_all(tasks).await;
+
+    for result in results {
+        if let Err(e) = result {
+            error!("Task failed: {:?}", e);
+        }
+    }
 
     Ok(())
+}
+
+// Function to check if the file needs to be processed
+fn can_be_skipped(path: &Path) -> bool {
+    // do create task for non-jpeg files
+    if !is_jpeg(path) {
+        return true;
+    }
+
+    // Check if the EXIF description already exists and skip the file if it does.
+    match get_xmp_description(path) {
+        Ok(Some(description)) => {
+            info!(
+                "Description \"{}\" exists for \"{}\"",
+                &description,
+                &path.display()
+            );
+            return true;
+        }
+        Ok(None) => {
+            // Continue code execution if there is no description
+        }
+        Err(e) => {
+            error!(
+                "Error getting XMP description for {}: {}",
+                &path.display(),
+                &e
+            );
+            return true;
+        }
+    }
+    false
 }

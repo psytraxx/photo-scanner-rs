@@ -32,6 +32,10 @@ dump all xmp information
 
     exiftool -xmp -b -r /home/eric/Desktop/sizilien 
 
+fix for windows after generation
+
+    exiftool "-XPComment<XMP:Description" -if '$XMP:Description ne $XPComment' -v -overwrite_original -iptc:Caption-Abstract= -exif:ImageDescription=  -r /mnt/data/Photos/photos/2023/
+
 # Tests
 
 cargo run  ./testdata

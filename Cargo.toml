@@ -15,4 +15,4 @@ async-stream = "0.3.6"
 async-trait = "0.1.83"
 xmp_toolkit = { version = "1.9.1", features = ["chrono"] }
 little_exif = "0.5.1"
-image = "0.25.4"
+image = { version = "0.25.4", features = ["rayon", "nasm"] }
