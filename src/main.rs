@@ -16,7 +16,7 @@ use tokio::sync::Semaphore;
 use tracing::{error, info, warn};
 
 // Maximum number of concurrent tasks for ollama multimodal API
-const MAX_CONCURRENT_TASKS: usize = 2;
+const MAX_CONCURRENT_TASKS: usize = 1;
 
 // Function to list files in a directory and its subdirectories
 fn list_files(directory: PathBuf) -> Pin<Box<dyn Stream<Item = Result<PathBuf>> + Send>> {
@@ -101,6 +101,8 @@ async fn main() -> Result<()> {
                 }
             };
 
+            let start_time = Instant::now();
+
             let persons = match extract_persons(&path) {
                 Ok(persons) => persons,
                 Err(e) => {
@@ -115,7 +117,6 @@ async fn main() -> Result<()> {
                 .parent()
                 .and_then(|p| p.file_name()?.to_str().map(|s| s.to_string()));
 
-            let start_time = Instant::now();
             let description = match chat.get_chat(&image_base64, &persons, &folder_name).await {
                 Ok(description) => description,
                 Err(e) => {
@@ -129,18 +130,9 @@ async fn main() -> Result<()> {
                 }
             };
 
-            let duration = Instant::now() - start_time;
-            info!(
-                "Generated \"{}\" for \"{}\", Time taken: {:.2} seconds, Persons: {:?}",
-                &description,
-                &path.display(),
-                duration.as_secs_f64(),
-                &persons
-            );
-
-            if let Err(e) = chat.get_embedding(&description).await {
+            /* if let Err(e) = chat.get_embedding(&description).await {
                 error!("Error getting embedding for {}: {}", &path.display(), e);
-            }
+            } */
 
             if let Err(e) = write_xmp_description(&description, &path) {
                 error!(
@@ -149,6 +141,15 @@ async fn main() -> Result<()> {
                     e
                 );
             }
+
+            let duration = Instant::now() - start_time;
+            info!(
+                "Generated \"{}\" for \"{}\", Time taken: {:.2} seconds, Persons: {:?}",
+                &description,
+                &path.display(),
+                duration.as_secs_f64(),
+                &persons
+            );
 
             drop(permit);
         });
