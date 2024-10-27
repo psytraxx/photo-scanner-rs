@@ -1,6 +1,6 @@
 # Usage
 
-cargo run  /home/eric/Desktop/sizilien/
+RUST_LOG=info cargo run --release /mnt/data/Photos/photos/2021/
 
 # Exiftool 
 
@@ -54,9 +54,14 @@ INFO Description for testdata/picasa/PXL_20230408_060152625.jpg: A young girl in
  
  INFO Description for testdata/sizilien/4L2A3805.jpg:  This serene beach scene is characterized by several sun umbrellas set up on the pristine white sand. The tranquility is accentuated by a lone dog lounging nearby, its head resting lazily on the sandy shore, underlining the calm and quiet vibe of this coastal setting.  Time taken: 9.18 seconds
 
-# llama-3.1-unhinged-vision-8b - rx 7600
+## llama-3.1-unhinged-vision-8b - rx 7600 xt
 
 INFO Description for ./testdata/sizilien/4L2A3805.jpg: A serene beach scene unfolds before me, with the warm sand beneath my feet and the soothing sound of waves gently lapping at the shore. The vibrant hues of the umbrellas and lounge chairs stand out against the tranquil backdrop of the ocean, inviting relaxation and tranquility. Time taken: 28.99 seconds, Persons: []
+
+## llava:13b - rx 7600 xt
+
+INFO Generated "This sunny beach scene is characteristic of Sicilian coastline. The clear blue waters meet sand-colored shores under a backdrop of warm, bright skies. Tucked into the middle of this idyllic setting are rows of colorful umbrellas and lounge chairs, inviting beachgoers to relax and enjoy the seaside view. In the vicinity of these amenities, a dog is peacefully resting on the sand, adding to the tranquil atmosphere." for "testdata/sizilien/4L2A3805.jpg", Time taken: 11.30 seconds, Persons: []
+
 
 
 

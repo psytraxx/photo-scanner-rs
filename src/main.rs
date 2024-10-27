@@ -12,6 +12,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::{error, info, warn};
+use tracing_appender::rolling;
+use tracing_subscriber::EnvFilter;
 
 // Maximum number of concurrent tasks for ollama multimodal API
 const MAX_CONCURRENT_TASKS: usize = 2;
@@ -45,11 +47,13 @@ fn is_jpeg(path: &Path) -> bool {
 #[tokio::main]
 async fn main() -> Result<()> {
     // Set up tracing for logging.
+    let file_appender = rolling::never("logs", "scanner.log");
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
-        .with_ansi(true)
+        .with_writer(file_appender)
         .with_target(false)
         .without_time()
+        .with_env_filter(EnvFilter::from_default_env())
         .init();
 
     // Initialize the OpenAI chat model.
@@ -69,7 +73,7 @@ async fn main() -> Result<()> {
     let progress_bar = Arc::new(ProgressBar::new(files_list.len() as u64));
     progress_bar.set_style(
         ProgressStyle::default_bar()
-            .template("[{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})")?,
+            .template("[{elapsed_precise}] [{wide_bar}] {pos}/{len} ({eta})")?,
     );
 
     iter(files_list)
