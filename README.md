@@ -34,7 +34,7 @@ dump all xmp information
 
 fix for windows after generation
 
-    exiftool "-XPComment<XMP:Description" -if '$XMP:Description ne $XPComment' -v -overwrite_original -iptc:Caption-Abstract= -exif:ImageDescription=  -r /mnt/data/Photos/photos/2023/
+    exiftool "-XPComment<XMP:Description" -if 'not $XPComment or $XMP:Description ne $XPComment' -v -overwrite_original -iptc:Caption-Abstract= -exif:ImageDescription=  -r /mnt/data/Photos/photos/2023/
 
 # Tests
 

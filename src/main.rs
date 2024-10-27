@@ -16,7 +16,7 @@ use tokio::sync::Semaphore;
 use tracing::{error, info, warn};
 
 // Maximum number of concurrent tasks for ollama multimodal API
-const MAX_CONCURRENT_TASKS: usize = 1;
+const MAX_CONCURRENT_TASKS: usize = 2;
 
 // Function to list files in a directory and its subdirectories
 fn list_files(directory: PathBuf) -> Pin<Box<dyn Stream<Item = Result<PathBuf>> + Send>> {
