@@ -17,6 +17,8 @@ image = { version = "0.25.4", features = ["rayon"] }
 futures = "0.3.31"
 indicatif = "0.17.8"
 tracing-appender = "0.2.3"
+qdrant-client = "1.12.1"
+serde_json = "1.0.132"
 
 [dev-dependencies]
 tempfile = "3.13.0"
