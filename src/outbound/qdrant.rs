@@ -13,22 +13,23 @@ use std::collections::HashMap;
 
 pub struct QdrantClient {
     client: Qdrant,
+    dimensions: u64,
 }
 
 impl QdrantClient {
-    pub fn new(url: &str) -> Result<Self> {
+    pub fn new(url: &str, dimensions: u64) -> Result<Self> {
         let client = Qdrant::from_url(url).build()?;
-        Ok(Self { client })
+        Ok(Self { client, dimensions })
     }
 }
 
 #[async_trait]
 impl VectorDB for QdrantClient {
-    async fn create_collection(&self, collection: &str, size: u64) -> Result<bool> {
+    async fn create_collection(&self, collection: &str) -> Result<bool> {
         self.client
             .create_collection(
                 CreateCollectionBuilder::new(collection)
-                    .vectors_config(VectorParamsBuilder::new(size, Distance::Cosine))
+                    .vectors_config(VectorParamsBuilder::new(self.dimensions, Distance::Cosine))
                     .quantization_config(ScalarQuantizationBuilder::default()),
             )
             .await
@@ -78,7 +79,7 @@ impl VectorDB for QdrantClient {
             .collect();
         self.client
             .search_points(
-                SearchPointsBuilder::new(collection_name, vec![0.0; 1536], 1)
+                SearchPointsBuilder::new(collection_name, vec![0.0; self.dimensions as usize], 1)
                     .filter(Filter::all(filter))
                     .build(),
             )

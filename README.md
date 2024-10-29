@@ -1,6 +1,8 @@
 # Usage
 
-RUST_LOG=info cargo run --release /mnt/data/Photos/photos/2021/
+RUST_LOG=info cargo run --bin descriptions --release /mnt/data/Photos/photos/
+
+RUST_LOG=info cargo run --bin embeddings --release /mnt/data/Photos/photos/
 
 # Exiftool 
 
@@ -38,7 +40,7 @@ fix for windows after generation
 
 # Tests
 
-cargo run  ./testdata
+cargo run --bin descriptions ./testdata
 
 ## llava:13b - mac pro m1
  INFO Description for testdata/picasa/PXL_20230408_060152625.jpg:  In a cozy, possibly European setting, a girl sits at table with a white tablecloth, radiating joy as she smiles into the camera. The backdrop suggests it might be a traditional inn or restaurant. Time taken: 16.91 seconds

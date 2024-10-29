@@ -11,10 +11,10 @@ use std::{
     path::PathBuf,
     sync::Arc,
 };
-use tracing::{error, warn};
+use tracing::{debug, error, info, warn};
 
 // Maximum number of concurrent tasks for embeddings API
-const MAX_CONCURRENT_TASKS: usize = 10;
+const MAX_CONCURRENT_TASKS: usize = 20;
 const COLLECTION_NAME: &str = "photos";
 const DROP_COLLECTION: bool = false;
 
@@ -43,9 +43,7 @@ impl EmbeddingsService {
 
         if DROP_COLLECTION {
             self.vector_db.delete_collection(COLLECTION_NAME).await?;
-            self.vector_db
-                .create_collection(COLLECTION_NAME, 1536)
-                .await?;
+            self.vector_db.create_collection(COLLECTION_NAME).await?;
         }
 
         // Create a progress bar with the total length of the vector.
@@ -77,18 +75,34 @@ impl EmbeddingsService {
             Ok(Some(description)) => {
                 match self.chat.get_embedding(&description).await {
                     Ok(embedding) => {
+                        let message = path
+                            .parent()
+                            .unwrap()
+                            .file_name()
+                            .unwrap()
+                            .to_str()
+                            .unwrap();
                         let mut payload = HashMap::new();
                         payload.insert("path".to_string(), path.display().to_string());
                         payload.insert("description".to_string(), description);
+                        payload.insert("folder".to_string(), message.into());
                         let mut hasher = DefaultHasher::new();
                         path.hash(&mut hasher);
                         let id = hasher.finish();
+
+                        info!(
+                            "Processing {}: {:?} {:?}, {}",
+                            path.display(),
+                            payload.clone(),
+                            embedding.len(),
+                            id
+                        );
                         match self
                             .vector_db
                             .upsert_points(COLLECTION_NAME, id, embedding, payload)
                             .await
                         {
-                            Ok(_) => (),
+                            Ok(t) => debug!("Upserted points: {}", t),
                             Err(e) => {
                                 error!("Error upserting points: {}", e);
                                 return Err(e);
@@ -209,7 +223,7 @@ mod tests {
 
     #[async_trait]
     impl VectorDB for VectorDBMock {
-        async fn create_collection(&self, _collection: &str, _size: u64) -> Result<bool> {
+        async fn create_collection(&self, _collection: &str) -> Result<bool> {
             unimplemented!()
         }
 

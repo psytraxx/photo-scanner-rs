@@ -26,7 +26,7 @@ pub trait XMPMetadata: 'static + Send + Sync {
 
 #[async_trait]
 pub trait VectorDB: 'static + Sync + Send {
-    async fn create_collection(&self, collection: &str, size: u64) -> Result<bool>;
+    async fn create_collection(&self, collection: &str) -> Result<bool>;
 
     async fn delete_collection(&self, text: &str) -> Result<bool>;
 

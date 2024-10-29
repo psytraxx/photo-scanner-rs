@@ -7,15 +7,36 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'photo-scanner-rust'",
+            "name": "Debug unit tests in library 'photo_scanner_rust'",
             "cargo": {
                 "args": [
-                    "build",
-                    "--bin=photo-scanner-rust",
+                    "test",
+                    "--no-run",
+                    "--lib",
                     "--package=photo-scanner-rust"
                 ],
                 "filter": {
-                    "name": "photo-scanner-rust",
+                    "name": "photo_scanner_rust",
+                    "kind": "lib"
+                }
+            },
+            "args": [
+                "testdata"
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'descriptions'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=descriptions",
+                    "--package=photo-scanner-rust"
+                ],
+                "filter": {
+                    "name": "descriptions",
                     "kind": "bin"
                 }
             },
@@ -27,16 +48,57 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in executable 'photo-scanner-rust'",
+            "name": "Debug unit tests in executable 'descriptions'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
-                    "--bin=photo-scanner-rust",
+                    "--bin=descriptions",
                     "--package=photo-scanner-rust"
                 ],
                 "filter": {
-                    "name": "photo-scanner-rust",
+                    "name": "descriptions",
+                    "kind": "bin"
+                }
+            },
+            "args": [
+                "testdata"
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'embeddings'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=embeddings",
+                    "--package=photo-scanner-rust"
+                ],
+                "filter": {
+                    "name": "embeddings",
+                    "kind": "bin"
+                }
+            },
+            "args": [
+                "testdata"
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'embeddings'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=embeddings",
+                    "--package=photo-scanner-rust"
+                ],
+                "filter": {
+                    "name": "embeddings",
                     "kind": "bin"
                 }
             },
