@@ -13,7 +13,7 @@ use super::{
     ports::{Chat, ImageEncoder, XMPMetadata},
 };
 
-// Maximum number of concurrent tasks for ollama multimodal API
+// Maximum number of concurrent tasks for multimodal API
 const MAX_CONCURRENT_TASKS: usize = 2;
 
 pub struct DescriptionService {

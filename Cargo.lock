@@ -1465,6 +1465,7 @@ dependencies = [
  "indicatif",
  "little_exif",
  "qdrant-client",
+ "rand",
  "serde_json",
  "tempfile",
  "tokio",
