@@ -3,7 +3,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use qdrant_client::{
     qdrant::{
-        Condition, CreateCollectionBuilder, Distance, Filter, PointStruct,
+        Condition, CreateCollectionBuilder, Distance, Filter, PayloadIncludeSelector, PointStruct,
         ScalarQuantizationBuilder, SearchPointsBuilder, UpsertPointsBuilder, VectorParamsBuilder,
     },
     Payload, Qdrant,
@@ -72,19 +72,33 @@ impl VectorDB for QdrantClient {
         &self,
         collection_name: &str,
         payload_required: HashMap<String, String>,
+        input_vectors: Vec<f32>,
     ) -> Result<bool> {
         let filter: Vec<Condition> = payload_required
             .iter()
             .map(|(key, value)| Condition::matches(key, value.to_string()))
             .collect();
-        self.client
+        let result = self
+            .client
             .search_points(
-                SearchPointsBuilder::new(collection_name, vec![0.0; self.dimensions as usize], 1)
+                SearchPointsBuilder::new(collection_name, input_vectors, 10)
                     .filter(Filter::all(filter))
+                    .with_payload(PayloadIncludeSelector::new(vec![
+                        "description".into(),
+                        "path".into(),
+                    ]))
                     .build(),
             )
-            .await
-            .map(|r| !r.result.is_empty())
-            .map_err(anyhow::Error::from)
+            .await;
+
+        result.expect("msg").result.iter().for_each(|r| {
+            println!(
+                "Result: {:?} {:?}",
+                r.payload.get("description").unwrap(),
+                r.payload.get("path").unwrap()
+            );
+        });
+
+        Ok(true)
     }
 }

@@ -263,6 +263,7 @@ mod tests {
             &self,
             collection_name: &str,
             _payload_required: HashMap<String, String>,
+            _input_vectors: Vec<f32>,
         ) -> Result<bool> {
             let entries = self.store_embeddings.lock().unwrap();
             match entries.get(collection_name) {

@@ -42,5 +42,6 @@ pub trait VectorDB: 'static + Sync + Send {
         &self,
         collection_name: &str,
         payload_required: HashMap<String, String>,
+        input_vectors: Vec<f32>,
     ) -> Result<bool>;
 }
