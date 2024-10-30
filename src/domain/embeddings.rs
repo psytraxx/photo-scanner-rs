@@ -73,6 +73,23 @@ impl EmbeddingsService {
         // Extract persons from the image, handling any errors.
         match self.xmp_metadata.get_xmp_description(path) {
             Ok(Some(description)) => {
+                let mut hasher = DefaultHasher::new();
+                path.hash(&mut hasher);
+                let id = hasher.finish();
+
+                match self.vector_db.find_by_id(COLLECTION_NAME, &id).await {
+                    Ok(r) => {
+                        debug!("Skipping {} because of existing ID {:?}", path.display(), r);
+                        if r.is_some() {
+                            return Ok(());
+                        }
+                    }
+                    Err(e) => {
+                        error!("Error finding ID: {}", e);
+                        return Err(e);
+                    }
+                }
+
                 match self.chat.get_embedding(&description).await {
                     Ok(embedding) => {
                         let message = path
@@ -86,9 +103,6 @@ impl EmbeddingsService {
                         payload.insert("path".to_string(), path.display().to_string());
                         payload.insert("description".to_string(), description);
                         payload.insert("folder".to_string(), message.into());
-                        let mut hasher = DefaultHasher::new();
-                        path.hash(&mut hasher);
-                        let id = hasher.finish();
 
                         info!(
                             "Processing {}: {:?} {:?}, {}",
@@ -237,6 +251,14 @@ mod tests {
         }
 
         async fn delete_collection(&self, _text: &str) -> Result<bool> {
+            unimplemented!()
+        }
+
+        async fn find_by_id(
+            &self,
+            _collection_name: &str,
+            _id: &u64,
+        ) -> Result<Option<VectorSearchResult>> {
             unimplemented!()
         }
 

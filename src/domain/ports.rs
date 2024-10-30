@@ -48,4 +48,10 @@ pub trait VectorDB: 'static + Sync + Send {
         payload_required: HashMap<String, String>,
         input_vectors: Vec<f32>,
     ) -> Result<Vec<VectorSearchResult>>;
+
+    async fn find_by_id(
+        &self,
+        collection_name: &str,
+        id: &u64,
+    ) -> Result<Option<VectorSearchResult>>;
 }
