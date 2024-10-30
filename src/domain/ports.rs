@@ -2,9 +2,11 @@ use anyhow::Result;
 use async_trait::async_trait;
 use std::{collections::HashMap, path::Path, vec::Vec};
 
+use super::models::VectorSearchResult;
+
 #[async_trait]
 pub trait Chat: 'static + Send + Sync {
-    async fn get_chat(
+    async fn get_image_description(
         &self,
         image_base64: &str,
         persons: &[String],
@@ -43,5 +45,5 @@ pub trait VectorDB: 'static + Sync + Send {
         collection_name: &str,
         payload_required: HashMap<String, String>,
         input_vectors: Vec<f32>,
-    ) -> Result<bool>;
+    ) -> Result<Vec<VectorSearchResult>>;
 }

@@ -1,10 +1,11 @@
-use crate::domain::ports::VectorDB;
+use crate::domain::{models::VectorSearchResult, ports::VectorDB};
 use anyhow::Result;
 use async_trait::async_trait;
 use qdrant_client::{
     qdrant::{
-        Condition, CreateCollectionBuilder, Distance, Filter, PayloadIncludeSelector, PointStruct,
-        ScalarQuantizationBuilder, SearchPointsBuilder, UpsertPointsBuilder, VectorParamsBuilder,
+        point_id::PointIdOptions, Condition, CreateCollectionBuilder, Distance, Filter,
+        PayloadIncludeSelector, PointStruct, ScalarQuantizationBuilder, SearchPointsBuilder,
+        UpsertPointsBuilder, VectorParamsBuilder,
     },
     Payload, Qdrant,
 };
@@ -73,7 +74,7 @@ impl VectorDB for QdrantClient {
         collection_name: &str,
         payload_required: HashMap<String, String>,
         input_vectors: Vec<f32>,
-    ) -> Result<bool> {
+    ) -> Result<Vec<VectorSearchResult>> {
         let filter: Vec<Condition> = payload_required
             .iter()
             .map(|(key, value)| Condition::matches(key, value.to_string()))
@@ -89,16 +90,25 @@ impl VectorDB for QdrantClient {
                     ]))
                     .build(),
             )
-            .await;
+            .await?;
 
-        result.expect("msg").result.iter().for_each(|r| {
-            println!(
-                "Result: {:?} {:?}",
-                r.payload.get("description").unwrap(),
-                r.payload.get("path").unwrap()
-            );
-        });
-
-        Ok(true)
+        let result: Vec<VectorSearchResult> = result
+            .result
+            .iter()
+            .map(|r| {
+                let payload: HashMap<String, String> = r
+                    .payload
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone().to_string()))
+                    .collect();
+                let score = r.score;
+                let id: u64 = match r.id.as_ref().unwrap().point_id_options {
+                    Some(PointIdOptions::Num(id)) => id,
+                    _ => panic!("Invalid point id"),
+                };
+                VectorSearchResult { id, score, payload }
+            })
+            .collect();
+        Ok(result)
     }
 }

@@ -29,9 +29,14 @@ async fn main() -> Result<()> {
 
     let question_embeddigs = chat.get_embedding("Pictures sunsets in asia").await?;
 
-    vector_db
+    // what is our favorite beach holiday destination in europe
+    // which festivals has annina visited in in the last years
+
+    let result = vector_db
         .search_points("photos", HashMap::new(), question_embeddigs)
         .await?;
+
+    println!("{:?}", result);
 
     Ok(())
 }

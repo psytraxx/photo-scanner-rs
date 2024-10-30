@@ -146,6 +146,7 @@ mod tests {
     };
     use tracing::debug;
 
+    use crate::domain::models::VectorSearchResult;
     use crate::{
         domain::{
             embeddings::EmbeddingsService,
@@ -185,7 +186,7 @@ mod tests {
 
     #[async_trait]
     impl Chat for ChatMock {
-        async fn get_chat(
+        async fn get_image_description(
             &self,
             _image_base64: &str,
             _persons: &[String],
@@ -264,7 +265,7 @@ mod tests {
             collection_name: &str,
             _payload_required: HashMap<String, String>,
             _input_vectors: Vec<f32>,
-        ) -> Result<bool> {
+        ) -> Result<Vec<VectorSearchResult>> {
             let entries = self.store_embeddings.lock().unwrap();
             match entries.get(collection_name) {
                 Some(entries) => {
@@ -272,9 +273,19 @@ mod tests {
                         "Found {:?} entries in collection {}",
                         entries, collection_name
                     );
-                    return Ok(!entries.is_empty());
+
+                    entries
+                        .iter()
+                        .map(|entry| {
+                            Ok(VectorSearchResult {
+                                id: entry.id,
+                                score: 0.0,
+                                payload: entry.payload.clone(),
+                            })
+                        })
+                        .collect()
                 }
-                None => return Ok(false),
+                None => return Ok(Vec::new()),
             }
         }
     }

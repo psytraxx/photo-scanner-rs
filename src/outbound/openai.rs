@@ -38,7 +38,7 @@ impl Default for OpenAI {
 
 #[async_trait]
 impl Chat for OpenAI {
-    async fn get_chat(
+    async fn get_image_description(
         &self,
         image: &str,
         persons: &[String],

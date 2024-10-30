@@ -88,7 +88,7 @@ impl DescriptionService {
                     // Generate a description using the chat model.
                     let description = match self
                         .chat
-                        .get_chat(&image_base64, &persons, &folder_name)
+                        .get_image_description(&image_base64, &persons, &folder_name)
                         .await
                     {
                         Ok(desc) => desc,
@@ -207,7 +207,7 @@ mod tests {
 
     #[async_trait]
     impl Chat for ChatMock {
-        async fn get_chat(
+        async fn get_image_description(
             &self,
             _image_base64: &str,
             _persons: &[String],
