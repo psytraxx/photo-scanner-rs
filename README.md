@@ -4,6 +4,11 @@ RUST_LOG=info cargo run --bin descriptions --release /mnt/data/Photos/photos/
 
 RUST_LOG=info cargo run --bin embeddings --release /mnt/data/Photos/photos/
 
+# ollama
+
+    curl -fsSL https://ollama.com/install.sh
+    curl -fsSL https://ollama.com/install.sh | OLLAMA_VERSION=0.4.0-rc5 sh
+
 # Exiftool 
 
 validate files

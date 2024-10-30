@@ -133,12 +133,24 @@ impl DescriptionService {
         // Skip files that already have an XMP description.
         match self.xmp_metadata.get_xmp_description(path) {
             Ok(Some(description)) => {
-                info!(
-                    "Description \"{}\" exists for \"{}\"",
-                    description,
-                    path.display()
-                );
-                true
+                if description.starts_with("The image")
+                    || description.starts_with("The photo")
+                    || description.starts_with("The scene ")
+                {
+                    info!(
+                        "Reprocessed \"{}\" exists for \"{}\", but will be ",
+                        description,
+                        path.display()
+                    );
+                    false
+                } else {
+                    info!(
+                        "Description \"{}\" exists for \"{}\"",
+                        description,
+                        path.display()
+                    );
+                    true
+                }
             }
             Ok(None) => false, // No description present, proceed with processing.
             Err(e) => {
