@@ -78,11 +78,21 @@ impl EmbeddingsService {
                 let id = hasher.finish();
 
                 match self.vector_db.find_by_id(COLLECTION_NAME, &id).await {
-                    Ok(r) => {
-                        debug!("Skipping {} because of existing ID {:?}", path.display(), r);
-                        if r.is_some() {
-                            return Ok(());
+                    Ok(Some(existing_entry)) => {
+                        if let Some(existing_description) =
+                            existing_entry.payload.get("description")
+                        {
+                            if existing_description.contains(&description) {
+                                info!(
+                                    "Skipping {} because of existing ID with same description",
+                                    path.display()
+                                );
+                                return Ok(());
+                            }
                         }
+                    }
+                    Ok(None) => {
+                        debug!("No existing entry found for ID {}", id);
                     }
                     Err(e) => {
                         error!("Error finding ID: {}", e);
