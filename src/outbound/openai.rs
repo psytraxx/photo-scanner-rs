@@ -4,7 +4,9 @@ use async_openai::{
     config::OpenAIConfig,
     types::{
         ChatCompletionRequestMessageContentPartImageArgs,
-        ChatCompletionRequestMessageContentPartTextArgs, ChatCompletionRequestUserMessageArgs,
+        ChatCompletionRequestMessageContentPartText,
+        ChatCompletionRequestMessageContentPartTextArgs, ChatCompletionRequestSystemMessageArgs,
+        ChatCompletionRequestUserMessageArgs, ChatCompletionRequestUserMessageContentPart,
         CreateChatCompletionRequestArgs, CreateEmbeddingRequest, EmbeddingInput, ImageDetail,
         ImageUrlArgs, Role,
     },
@@ -14,7 +16,8 @@ use std::vec::Vec;
 
 const EMBEDDING_MODEL: &str = "mxbai-embed-large";
 const BASE_URL: &str = "http://localhost:11434/v1";
-const CHAT_MODEL: &str = "llava:13b";
+const CHAT_MODEL_MULTIMODAL: &str = "llava:13b";
+const CHAT_MODEL_TEXT: &str = "llama3.1:8b";
 
 #[derive(Debug, Clone)]
 pub struct OpenAI {
@@ -109,7 +112,7 @@ impl Chat for OpenAI {
 
         let request = CreateChatCompletionRequestArgs::default()
             .max_tokens(512u16)
-            .model(CHAT_MODEL)
+            .model(CHAT_MODEL_MULTIMODAL)
             .messages(messages)
             .build()?;
 
@@ -136,6 +139,40 @@ impl Chat for OpenAI {
         // Extract the first embedding vector from the response
         let embedding = &response.data[0].embedding;
         Ok(embedding.clone())
+    }
+
+    async fn process_search_result(&self, question: &str, options: Vec<String>) -> Result<String> {
+        let options: Vec<ChatCompletionRequestUserMessageContentPart> = options
+            .iter()
+            .map(|o| ChatCompletionRequestMessageContentPartText { text: o.clone() }.into())
+            .collect();
+
+        let messages = vec![
+            ChatCompletionRequestSystemMessageArgs::default()
+                .content(
+                    "You are a helpful assistant answering the given question using given options.",
+                )
+                .build()?
+                .into(),
+            ChatCompletionRequestUserMessageArgs::default()
+                .content(question)
+                .build()?
+                .into(),
+            ChatCompletionRequestUserMessageArgs::default()
+                .content(options)
+                .build()?
+                .into(),
+        ];
+
+        let request = CreateChatCompletionRequestArgs::default()
+            .max_tokens(512u16)
+            .model(CHAT_MODEL_TEXT)
+            .messages(messages)
+            .build()?;
+
+        tracing::debug!("OpenAI Request: {:?}", request.messages);
+        let response = self.openai_client.chat().create(request).await?;
+        Ok(process_openai_response(response))
     }
 }
 

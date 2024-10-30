@@ -220,5 +220,13 @@ mod tests {
         async fn get_embedding(&self, _text: &str) -> Result<Vec<f32>> {
             unimplemented!()
         }
+
+        async fn process_search_result(
+            &self,
+            _question: &str,
+            _options: Vec<String>,
+        ) -> Result<String> {
+            unimplemented!()
+        }
     }
 }

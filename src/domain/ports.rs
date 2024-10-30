@@ -14,6 +14,8 @@ pub trait Chat: 'static + Send + Sync {
     ) -> Result<String>;
 
     async fn get_embedding(&self, text: &str) -> Result<Vec<f32>>;
+
+    async fn process_search_result(&self, question: &str, options: Vec<String>) -> Result<String>;
 }
 
 pub trait ImageEncoder: 'static + Send + Sync {

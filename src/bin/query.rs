@@ -27,14 +27,24 @@ async fn main() -> Result<()> {
 
     let vector_db = Arc::new(QdrantClient::new(QDRANT_GRPC, 1024)?);
 
-    let question_embeddigs = chat.get_embedding("Pictures sunsets in asia").await?;
-
     // what is our favorite beach holiday destination in europe
     // which festivals has annina visited in in the last years
+    let question = "what is our favorite beach holiday destination in europe";
+
+    let question_embeddigs = chat.get_embedding(question).await?;
 
     let result = vector_db
         .search_points("photos", HashMap::new(), question_embeddigs)
         .await?;
+
+    let result = result
+        .iter()
+        .map(|r| r.payload["description"].to_string())
+        .collect::<Vec<_>>();
+
+    println!("{:?}", result);
+
+    let result = chat.process_search_result(question, result).await?;
 
     println!("{:?}", result);
 

@@ -82,7 +82,7 @@ impl VectorDB for QdrantClient {
         let result = self
             .client
             .search_points(
-                SearchPointsBuilder::new(collection_name, input_vectors, 10)
+                SearchPointsBuilder::new(collection_name, input_vectors, 20)
                     .filter(Filter::all(filter))
                     .with_payload(PayloadIncludeSelector::new(vec![
                         "description".into(),

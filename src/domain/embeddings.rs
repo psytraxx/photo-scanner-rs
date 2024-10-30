@@ -201,6 +201,14 @@ mod tests {
             let embedding: Vec<f32> = (0..1536).map(|_| rng.gen()).collect();
             Ok(embedding)
         }
+
+        async fn process_search_result(
+            &self,
+            _question: &str,
+            _options: Vec<String>,
+        ) -> Result<String> {
+            unimplemented!()
+        }
     }
 
     struct VectorDBMock {
