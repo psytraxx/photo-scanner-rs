@@ -269,7 +269,7 @@ mod tests {
             _collection_name: &str,
             _id: &u64,
         ) -> Result<Option<VectorSearchResult>> {
-            unimplemented!()
+            return Ok(None);
         }
 
         async fn upsert_points(
