@@ -135,7 +135,10 @@ impl DescriptionService {
             Ok(Some(description)) => {
                 if description.starts_with("The image")
                     || description.starts_with("The photo")
-                    || description.starts_with("The scene ")
+                    || description.starts_with("The scene")
+                    || description.starts_with("This image")
+                    || description.starts_with("In the image")
+                    || description.starts_with("This scene")
                 {
                     info!(
                         "Reprocessed \"{}\" exists for \"{}\", but will be ",

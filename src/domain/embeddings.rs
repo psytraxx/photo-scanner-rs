@@ -14,7 +14,7 @@ use std::{
 use tracing::{debug, error, info, warn};
 
 // Maximum number of concurrent tasks for embeddings API
-const MAX_CONCURRENT_TASKS: usize = 20;
+const MAX_CONCURRENT_TASKS: usize = 2;
 const COLLECTION_NAME: &str = "photos";
 const DROP_COLLECTION: bool = false;
 
@@ -57,8 +57,10 @@ impl EmbeddingsService {
         iter(files_list)
             .for_each_concurrent(MAX_CONCURRENT_TASKS, |path| {
                 let progress_bar = Arc::clone(&progress_bar);
+                let message = path.parent().unwrap().display().to_string();
                 async move {
                     progress_bar.inc(1);
+                    progress_bar.set_message(message);
 
                     if let Err(e) = self.process_path(&path).await {
                         error!("Error processing path {}: {}", path.display(), e);
