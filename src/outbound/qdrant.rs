@@ -4,8 +4,9 @@ use async_trait::async_trait;
 use qdrant_client::{
     qdrant::{
         point_id::PointIdOptions, Condition, CreateCollectionBuilder, Distance, Filter,
-        GetPointsBuilder, PayloadIncludeSelector, PointId, PointStruct, ScalarQuantizationBuilder,
-        SearchPointsBuilder, UpsertPointsBuilder, VectorParamsBuilder,
+        GetPointsBuilder, PayloadIncludeSelector, PointId, PointStruct, RetrievedPoint,
+        ScalarQuantizationBuilder, ScoredPoint, SearchPointsBuilder, UpsertPointsBuilder,
+        VectorParamsBuilder,
     },
     Payload, Qdrant,
 };
@@ -79,7 +80,7 @@ impl VectorDB for QdrantClient {
             .iter()
             .map(|(key, value)| Condition::matches(key, value.to_string()))
             .collect();
-        let result = self
+        let response = self
             .client
             .search_points(
                 SearchPointsBuilder::new(collection_name, input_vectors, 20)
@@ -92,23 +93,7 @@ impl VectorDB for QdrantClient {
             )
             .await?;
 
-        let result: Vec<VectorSearchResult> = result
-            .result
-            .iter()
-            .map(|r| {
-                let payload: HashMap<String, String> = r
-                    .payload
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.clone().to_string()))
-                    .collect();
-                let score = r.score;
-                let id: u64 = match r.id.as_ref().unwrap().point_id_options {
-                    Some(PointIdOptions::Num(id)) => id,
-                    _ => panic!("Invalid point id"),
-                };
-                VectorSearchResult { id, score, payload }
-            })
-            .collect();
+        let result: Vec<VectorSearchResult> = response.result.iter().map(|r| r.into()).collect();
         Ok(result)
     }
 
@@ -124,28 +109,91 @@ impl VectorDB for QdrantClient {
                 "path".into(),
             ]))
             .build();
-        let result = self.client.get_points(query).await?;
+        let response = self.client.get_points(query).await?;
 
-        let result: Vec<VectorSearchResult> = result
-            .result
-            .iter()
-            .map(|r| {
-                let payload: HashMap<String, String> = r
-                    .payload
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.clone().to_string()))
-                    .collect();
-                let id: u64 = match r.id.as_ref().unwrap().point_id_options {
-                    Some(PointIdOptions::Num(id)) => id,
-                    _ => panic!("Invalid point id"),
-                };
-                VectorSearchResult {
-                    id,
-                    score: 1.0, // Not used in this context
-                    payload,
-                }
-            })
-            .collect();
+        let result: Vec<VectorSearchResult> = response.result.iter().map(|r| r.into()).collect();
         Ok(result.first().cloned())
+    }
+}
+
+impl From<&ScoredPoint> for VectorSearchResult {
+    fn from(point: &ScoredPoint) -> Self {
+        let payload: HashMap<String, String> = point
+            .payload
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone().to_string()))
+            .collect();
+        let score = point.score;
+        let id: u64 = match point.id.as_ref().unwrap().point_id_options {
+            Some(PointIdOptions::Num(id)) => id,
+            _ => panic!("Invalid point id"),
+        };
+        VectorSearchResult { id, score, payload }
+    }
+}
+
+impl From<&RetrievedPoint> for VectorSearchResult {
+    fn from(point: &RetrievedPoint) -> Self {
+        let payload: HashMap<String, String> = point
+            .payload
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone().to_string()))
+            .collect();
+        let id: u64 = match point.id.as_ref().unwrap().point_id_options {
+            Some(PointIdOptions::Num(id)) => id,
+            _ => panic!("Invalid point id"),
+        };
+        VectorSearchResult {
+            id,
+            score: 1.0, // Not used in this context
+            payload,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn test_scored_point_to_vector_search_result() {
+        let mut payload = HashMap::new();
+        payload.insert("test".to_string(), "test".into());
+
+        let scored_point = ScoredPoint {
+            id: Some(PointId {
+                point_id_options: Some(PointIdOptions::Num(123)),
+            }),
+            score: 0.9,
+            payload: payload.clone(),
+            ..ScoredPoint::default()
+        };
+
+        let result: VectorSearchResult = VectorSearchResult::from(&scored_point);
+
+        assert_eq!(result.id, 123);
+        assert_eq!(result.score, 0.9);
+        assert_eq!(result.payload.len(), payload.len());
+    }
+
+    #[test]
+    fn test_retrieved_point_to_vector_search_result() {
+        let mut payload = HashMap::new();
+        payload.insert("key1".to_string(), "test".into());
+
+        let retrieved_point = RetrievedPoint {
+            id: Some(PointId {
+                point_id_options: Some(PointIdOptions::Num(456)),
+            }),
+            payload: payload.clone(),
+            ..RetrievedPoint::default()
+        };
+
+        let result: VectorSearchResult = VectorSearchResult::from(&retrieved_point);
+
+        assert_eq!(result.id, 456);
+        assert_eq!(result.score, 1.0); // Default score
+        assert_eq!(result.payload.len(), payload.len());
     }
 }
