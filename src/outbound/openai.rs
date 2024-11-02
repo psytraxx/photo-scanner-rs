@@ -7,35 +7,49 @@ use async_openai::{
         ChatCompletionRequestMessageContentPartText,
         ChatCompletionRequestMessageContentPartTextArgs, ChatCompletionRequestSystemMessageArgs,
         ChatCompletionRequestUserMessageArgs, ChatCompletionRequestUserMessageContentPart,
-        CreateChatCompletionRequestArgs, CreateEmbeddingRequest, EmbeddingInput, ImageDetail,
-        ImageUrlArgs, Role,
+        CreateChatCompletionRequestArgs, CreateEmbeddingRequest, CreateEmbeddingResponse,
+        EmbeddingInput, ImageDetail, ImageUrlArgs, Role,
     },
 };
 use async_trait::async_trait;
-use std::vec::Vec;
+use std::{env::var, vec::Vec};
+use tracing::error;
 
 const EMBEDDING_MODEL: &str = "mxbai-embed-large";
 const BASE_URL: &str = "http://localhost:11434/v1";
 const CHAT_MODEL_MULTIMODAL: &str = "llava:13b";
 const CHAT_MODEL_TEXT: &str = "llama3.1:8b";
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct OpenAI {
     openai_client: async_openai::Client<OpenAIConfig>,
+    chat_model: String,
+    multimodal_model: String,
+    embedding_model: String,
 }
 
 impl OpenAI {
     pub fn new() -> Self {
-        let openai_config = OpenAIConfig::new().with_api_base(BASE_URL);
+        // load env from .env file
+        dotenv::dotenv().ok();
+        let api_key = var("CHAT_API_KEY").ok();
+        let api_base = var("CHAT_API_BASE").unwrap_or(BASE_URL.into());
+
+        let openai_config = OpenAIConfig::new()
+            .with_api_base(api_base)
+            .with_api_key(api_key.unwrap_or_default());
         let openai_client = async_openai::Client::with_config(openai_config);
 
-        OpenAI { openai_client }
-    }
-}
+        let chat_model = var("CHAT_MODEL").unwrap_or(CHAT_MODEL_TEXT.into());
+        let multimodal_model = var("CHAT_MODEL_IMAGE").unwrap_or(CHAT_MODEL_MULTIMODAL.into());
+        let embedding_model = var("CHAT_MODEL_EMBEDDINGS").unwrap_or(EMBEDDING_MODEL.into());
 
-impl Default for OpenAI {
-    fn default() -> Self {
-        Self::new()
+        OpenAI {
+            openai_client,
+            chat_model,
+            multimodal_model,
+            embedding_model,
+        }
     }
 }
 
@@ -79,7 +93,7 @@ impl Chat for OpenAI {
                     .build()?
                     .into(),
                 ChatCompletionRequestUserMessageArgs::default()
-                    .content("Do not refer to the image explicitly. Avoid phrases such as 'This image shows' or 'In this photo'. Focus on describing the essence of the scene directly without any verbs.")
+                    .content("Do not refer to the image explicitly. Avoid phrases such as 'This image shows' or 'In this photo' or 'This scene'. Focus on describing the essence of the scene directly without any verbs.")
                     .build()?
                     .into(),
             ];
@@ -112,7 +126,7 @@ impl Chat for OpenAI {
 
         let request = CreateChatCompletionRequestArgs::default()
             .max_tokens(512u16)
-            .model(CHAT_MODEL_MULTIMODAL)
+            .model(self.multimodal_model.clone())
             .messages(messages)
             .build()?;
 
@@ -123,16 +137,17 @@ impl Chat for OpenAI {
 
     async fn get_embedding(&self, text: &str) -> Result<Vec<f32>> {
         let request = CreateEmbeddingRequest {
-            model: EMBEDDING_MODEL.into(),
+            model: self.embedding_model.clone(),
             input: EmbeddingInput::String(text.into()),
             ..Default::default()
         };
 
-        let response: async_openai::types::CreateEmbeddingResponse =
+        let response: CreateEmbeddingResponse =
             match self.openai_client.embeddings().create(request).await {
                 Ok(response) => response,
                 Err(e) => {
-                    panic!("Failed to create embedding: {:?}", e);
+                    error!("Failed to create embedding: {:?}", e);
+                    Err(anyhow::Error::from(e))?
                 }
             };
 
@@ -166,7 +181,7 @@ impl Chat for OpenAI {
 
         let request = CreateChatCompletionRequestArgs::default()
             .max_tokens(512u16)
-            .model(CHAT_MODEL_TEXT)
+            .model(self.chat_model.clone())
             .messages(messages)
             .build()?;
 
