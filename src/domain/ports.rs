@@ -24,6 +24,7 @@ pub trait ImageEncoder: 'static + Send + Sync {
 
 pub trait XMPMetadata: 'static + Send + Sync {
     fn get_xmp_description(&self, path: &Path) -> Result<Option<String>>;
+    fn get_xmp_geolocation(&self, path: &Path) -> Result<Option<String>>;
     fn write_xmp_description(&self, text: &str, path: &Path) -> Result<()>;
     fn extract_persons(&self, path: &Path) -> Result<Vec<String>>;
 }

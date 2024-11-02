@@ -12,7 +12,7 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 tokio = { version = "1.40.0", features = ["full"] }
 async-trait = "0.1.83"
 xmp_toolkit = { version = "1.9.1", features = ["chrono"] }
-little_exif = "0.6.0"
+little_exif = "0.6.1"
 image = { version = "0.25.4", features = ["rayon"] }
 futures = "0.3.31"
 indicatif = "0.17.8"
