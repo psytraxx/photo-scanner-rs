@@ -1473,6 +1473,7 @@ dependencies = [
  "little_exif",
  "qdrant-client",
  "rand",
+ "regex",
  "serde_json",
  "tempfile",
  "tokio",

@@ -1,6 +1,7 @@
 use anyhow::Result;
 use futures::{stream::iter, StreamExt};
 use indicatif::{ProgressBar, ProgressStyle};
+use regex::Regex;
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -113,9 +114,9 @@ impl DescriptionService {
                     // Log the time taken and other details.
                     let duration = Instant::now() - start_time;
                     info!(
-                        "Generated \"{}\" for \"{}\", Time taken: {:.2} seconds, Persons: {:?}",
-                        description,
+                        "Generated: [{}] \"{}\", Time taken: {:.2} seconds, Persons: {:?}",
                         path.display(),
+                        description,
                         duration.as_secs_f64(),
                         persons
                     );
@@ -133,25 +134,12 @@ impl DescriptionService {
         // Skip files that already have an XMP description.
         match self.xmp_metadata.get_xmp_description(path) {
             Ok(Some(description)) => {
-                if description.starts_with("The image")
-                    || description.starts_with("The photo")
-                    || description.starts_with("The scene")
-                    || description.starts_with("This image")
-                    || description.starts_with("In the image")
-                    || description.starts_with("This scene")
-                {
-                    info!(
-                        "Reprocessed \"{}\" exists for \"{}\", but will be ",
-                        description,
-                        path.display()
-                    );
+                let re = Regex::new(r"(?i)\b(image|photo|picture|photograph)\b").unwrap();
+                if re.is_match(&description) {
+                    info!("Reprocessed: [{}] \"{}\"", path.display(), description,);
                     false
                 } else {
-                    info!(
-                        "Description \"{}\" exists for \"{}\"",
-                        description,
-                        path.display()
-                    );
+                    info!("Exists: [{}] \"{}\"", path.display(), description,);
                     true
                 }
             }
