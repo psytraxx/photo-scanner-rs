@@ -1,3 +1,7 @@
+use super::{
+    file_utils::list_jpeg_files,
+    ports::{Chat, ImageEncoder, XMPMetadata},
+};
 use anyhow::Result;
 use futures::{stream::iter, StreamExt};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -8,11 +12,6 @@ use std::{
     time::Instant,
 };
 use tracing::{error, info, warn};
-
-use super::{
-    file_utils::list_jpeg_files,
-    ports::{Chat, ImageEncoder, XMPMetadata},
-};
 
 // Maximum number of concurrent tasks for multimodal API
 const MAX_CONCURRENT_TASKS: usize = 2;

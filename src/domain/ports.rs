@@ -1,8 +1,7 @@
+use super::models::{VectorInput, VectorOutput};
 use anyhow::Result;
 use async_trait::async_trait;
 use std::{collections::HashMap, path::Path, vec::Vec};
-
-use super::models::VectorSearchResult;
 
 #[async_trait]
 pub trait Chat: 'static + Send + Sync {
@@ -35,24 +34,14 @@ pub trait VectorDB: 'static + Sync + Send {
 
     async fn delete_collection(&self, text: &str) -> Result<bool>;
 
-    async fn upsert_points(
-        &self,
-        collection_name: &str,
-        id: u64,
-        embedding: &[f32],
-        payload: HashMap<String, String>,
-    ) -> Result<bool>;
+    async fn upsert_points(&self, collection_name: &str, input: VectorInput) -> Result<bool>;
 
     async fn search_points(
         &self,
         collection_name: &str,
         input_vectors: &[f32],
         payload_required: HashMap<String, String>,
-    ) -> Result<Vec<VectorSearchResult>>;
+    ) -> Result<Vec<VectorOutput>>;
 
-    async fn find_by_id(
-        &self,
-        collection_name: &str,
-        id: &u64,
-    ) -> Result<Option<VectorSearchResult>>;
+    async fn find_by_id(&self, collection_name: &str, id: &u64) -> Result<Option<VectorOutput>>;
 }

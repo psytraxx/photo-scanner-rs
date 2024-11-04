@@ -1,4 +1,7 @@
-use crate::domain::{models::VectorSearchResult, ports::VectorDB};
+use crate::domain::{
+    models::{VectorInput, VectorOutput},
+    ports::VectorDB,
+};
 use anyhow::{Error, Result};
 use async_trait::async_trait;
 use qdrant_client::{
@@ -47,18 +50,12 @@ impl VectorDB for QdrantClient {
             .map_err(Error::from)
     }
 
-    async fn upsert_points(
-        &self,
-        collection_name: &str,
-        id: u64,
-        embedding: &[f32],
-        payload: HashMap<String, String>,
-    ) -> Result<bool> {
-        let payload = json!(payload);
+    async fn upsert_points(&self, collection_name: &str, input: VectorInput) -> Result<bool> {
+        let payload = json!(input.payload);
 
         match Payload::try_from(payload) {
             Ok(payload) => {
-                let point = PointStruct::new(id, embedding.to_vec(), payload);
+                let point = PointStruct::new(input.id, input.embedding, payload);
                 let request = UpsertPointsBuilder::new(collection_name, vec![point]).build();
                 self.client
                     .upsert_points(request)
@@ -75,7 +72,7 @@ impl VectorDB for QdrantClient {
         collection_name: &str,
         input_vectors: &[f32],
         payload_required: HashMap<String, String>,
-    ) -> Result<Vec<VectorSearchResult>> {
+    ) -> Result<Vec<VectorOutput>> {
         let filter: Vec<Condition> = payload_required
             .iter()
             .map(|(key, value)| Condition::matches(key, value.to_string()))
@@ -97,11 +94,7 @@ impl VectorDB for QdrantClient {
         Ok(result)
     }
 
-    async fn find_by_id(
-        &self,
-        collection_name: &str,
-        id: &u64,
-    ) -> Result<Option<VectorSearchResult>> {
+    async fn find_by_id(&self, collection_name: &str, id: &u64) -> Result<Option<VectorOutput>> {
         let query = PointId::from(*id);
         let query = GetPointsBuilder::new(collection_name, vec![query])
             .with_payload(PayloadIncludeSelector::new(vec![
@@ -111,12 +104,12 @@ impl VectorDB for QdrantClient {
             .build();
         let response = self.client.get_points(query).await?;
 
-        let result: Vec<VectorSearchResult> = response.result.iter().map(|r| r.into()).collect();
+        let result: Vec<VectorOutput> = response.result.iter().map(|r| r.into()).collect();
         Ok(result.first().cloned())
     }
 }
 
-impl From<&ScoredPoint> for VectorSearchResult {
+impl From<&ScoredPoint> for VectorOutput {
     fn from(point: &ScoredPoint) -> Self {
         let payload = point
             .payload
@@ -131,11 +124,15 @@ impl From<&ScoredPoint> for VectorSearchResult {
             _ => 0,
         };
 
-        Self { id, score, payload }
+        Self {
+            id,
+            score: Some(score),
+            payload,
+        }
     }
 }
 
-impl From<&RetrievedPoint> for VectorSearchResult {
+impl From<&RetrievedPoint> for VectorOutput {
     fn from(point: &RetrievedPoint) -> Self {
         let payload: HashMap<_, _> = point
             .payload
@@ -154,7 +151,7 @@ impl From<&RetrievedPoint> for VectorSearchResult {
 
         Self {
             id,
-            score: 1.0, // Not used in this context
+            score: None, // Not used in this context
             payload,
         }
     }
@@ -181,10 +178,10 @@ mod tests {
             ..ScoredPoint::default()
         };
 
-        let result: VectorSearchResult = VectorSearchResult::from(&scored_point);
+        let result = VectorOutput::from(&scored_point);
 
         assert_eq!(result.id, 123);
-        assert_eq!(result.score, 0.9);
+        assert_eq!(result.score, Some(0.9));
         assert_eq!(result.payload.len(), *payload_len);
     }
 
@@ -203,10 +200,10 @@ mod tests {
             ..RetrievedPoint::default()
         };
 
-        let result: VectorSearchResult = VectorSearchResult::from(&retrieved_point);
+        let result = VectorOutput::from(&retrieved_point);
 
         assert_eq!(result.id, 456);
-        assert_eq!(result.score, 1.0); // Default score
+        assert_eq!(result.score, None);
         assert_eq!(result.payload.len(), *payload_len);
     }
 }

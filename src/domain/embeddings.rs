@@ -2,6 +2,7 @@ use super::{
     file_utils::list_jpeg_files,
     ports::{Chat, VectorDB, XMPMetadata},
 };
+use crate::domain::models::VectorInput;
 use anyhow::Result;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::{
@@ -125,17 +126,15 @@ impl EmbeddingsService {
                 payload.insert("description".to_string(), result.description.clone());
                 payload.insert("folder".to_string(), message.into());
 
-                info!(
-                    "Processing {}: {:?} {:?}, {}",
-                    result.path.display(),
-                    &payload,
-                    embedding.len(),
-                    result.id
-                );
+                let input = VectorInput {
+                    id: result.id,
+                    embedding: embedding.clone(),
+                    payload,
+                };
 
-                self.vector_db
-                    .upsert_points(COLLECTION_NAME, result.id, embedding, payload)
-                    .await?;
+                info!("Processing {}: {:?}", result.path.display(), &input);
+
+                self.vector_db.upsert_points(COLLECTION_NAME, input).await?;
             }
 
             return Ok(());
@@ -147,6 +146,14 @@ impl EmbeddingsService {
 
 #[cfg(test)]
 mod tests {
+    use crate::{
+        domain::{
+            embeddings::EmbeddingsService,
+            models::{VectorInput, VectorOutput},
+            ports::{Chat, VectorDB},
+        },
+        outbound::xmp::XMPToolkitMetadata,
+    };
     use anyhow::Result;
     use async_trait::async_trait;
     use rand::Rng;
@@ -158,15 +165,6 @@ mod tests {
         sync::Arc,
     };
     use tracing::debug;
-
-    use crate::domain::models::VectorSearchResult;
-    use crate::{
-        domain::{
-            embeddings::EmbeddingsService,
-            ports::{Chat, VectorDB},
-        },
-        outbound::xmp::XMPToolkitMetadata,
-    };
     #[tokio::test]
     async fn test_generate_embeddings() -> Result<()> {
         let temp_dir = tempfile::tempdir()?;
@@ -224,13 +222,7 @@ mod tests {
     }
 
     struct VectorDBMock {
-        store_embeddings: Mutex<HashMap<String, Vec<VectorDBEntry>>>,
-    }
-
-    #[derive(Clone, Debug)]
-    struct VectorDBEntry {
-        id: u64,
-        payload: HashMap<String, String>,
+        store_embeddings: Mutex<HashMap<String, Vec<VectorInput>>>,
     }
 
     impl VectorDBMock {
@@ -255,17 +247,11 @@ mod tests {
             &self,
             _collection_name: &str,
             _id: &u64,
-        ) -> Result<Option<VectorSearchResult>> {
+        ) -> Result<Option<VectorOutput>> {
             return Ok(None);
         }
 
-        async fn upsert_points(
-            &self,
-            collection_name: &str,
-            id: u64,
-            _embedding: &[f32],
-            payload: HashMap<String, String>,
-        ) -> Result<bool> {
+        async fn upsert_points(&self, collection_name: &str, input: VectorInput) -> Result<bool> {
             let mut entries = self.store_embeddings.lock().unwrap();
             if !entries.contains_key(collection_name) {
                 entries.insert(collection_name.to_string(), Vec::new());
@@ -274,12 +260,16 @@ mod tests {
             let collection = entries.get_mut(collection_name).unwrap();
 
             // Find and remove an existing entry with the same ID
-            if collection.iter().any(|entry| entry.id == id) {
-                collection.retain(|entry| entry.id != id);
+            if collection.iter().any(|entry| entry.id == input.id) {
+                collection.retain(|entry| entry.id != input.id);
             }
 
             // Insert a new entry
-            collection.push(VectorDBEntry { id, payload });
+            collection.push(VectorInput {
+                id: input.id,
+                embedding: input.embedding.clone(),
+                payload: input.payload,
+            });
             Ok(true)
         }
 
@@ -288,7 +278,7 @@ mod tests {
             collection_name: &str,
             _input_vectors: &[f32],
             _payload_required: HashMap<String, String>,
-        ) -> Result<Vec<VectorSearchResult>> {
+        ) -> Result<Vec<VectorOutput>> {
             let entries = self.store_embeddings.lock().unwrap();
             match entries.get(collection_name) {
                 Some(entries) => {
@@ -300,9 +290,9 @@ mod tests {
                     entries
                         .iter()
                         .map(|entry| {
-                            Ok(VectorSearchResult {
+                            Ok(VectorOutput {
                                 id: entry.id,
-                                score: 0.0,
+                                score: None,
                                 payload: entry.payload.clone(),
                             })
                         })
