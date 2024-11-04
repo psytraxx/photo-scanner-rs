@@ -79,67 +79,48 @@ impl EmbeddingsService {
                 path.hash(&mut hasher);
                 let id = hasher.finish();
 
-                match self.vector_db.find_by_id(COLLECTION_NAME, &id).await {
-                    Ok(Some(existing_entry)) => {
-                        if let Some(existing_description) =
-                            existing_entry.payload.get("description")
-                        {
-                            if existing_description.contains(&description) {
-                                info!(
-                                    "Skipping {} because of existing ID with same description",
-                                    path.display()
-                                );
-                                return Ok(());
-                            }
+                let existing_entry = self.vector_db.find_by_id(COLLECTION_NAME, &id).await?;
+
+                if let Some(existing_entry) = existing_entry {
+                    if let Some(existing_description) = existing_entry.payload.get("description") {
+                        if existing_description.contains(&description) {
+                            info!(
+                                "Skipping {} because of existing ID with same description",
+                                path.display()
+                            );
+                            return Ok(());
                         }
-                    }
-                    Ok(None) => {
-                        debug!("No existing entry found for ID {}", id);
-                    }
-                    Err(e) => {
-                        error!("Error finding ID: {}", e);
-                        return Err(e);
                     }
                 }
 
-                match self.chat.get_embedding(&description).await {
-                    Ok(embedding) => {
-                        let message = path
-                            .parent()
-                            .unwrap()
-                            .file_name()
-                            .unwrap()
-                            .to_str()
-                            .unwrap();
-                        let mut payload = HashMap::new();
-                        payload.insert("path".to_string(), path.display().to_string());
-                        payload.insert("description".to_string(), description);
-                        payload.insert("folder".to_string(), message.into());
+                let embedding = self.chat.get_embedding(&description).await?;
 
-                        info!(
-                            "Processing {}: {:?} {:?}, {}",
-                            path.display(),
-                            payload.clone(),
-                            embedding.len(),
-                            id
-                        );
-                        match self
-                            .vector_db
-                            .upsert_points(COLLECTION_NAME, id, embedding, payload)
-                            .await
-                        {
-                            Ok(t) => debug!("Upserted points: {}", t),
-                            Err(e) => {
-                                error!("Error upserting points: {}", e);
-                                return Err(e);
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        error!("Error getting embedding: {}", e);
-                        return Err(e);
-                    }
-                }
+                let message = path
+                    .parent()
+                    .unwrap()
+                    .file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap();
+                let mut payload = HashMap::new();
+                payload.insert("path".to_string(), path.display().to_string());
+                payload.insert("description".to_string(), description);
+                payload.insert("folder".to_string(), message.into());
+
+                info!(
+                    "Processing {}: {:?} {:?}, {}",
+                    path.display(),
+                    &payload,
+                    embedding.len(),
+                    id
+                );
+
+                let success = self
+                    .vector_db
+                    .upsert_points(COLLECTION_NAME, id, &embedding, payload)
+                    .await?;
+
+                debug!("Upserted points success: {}", success);
 
                 Ok(())
             }
@@ -231,7 +212,7 @@ mod tests {
         async fn process_search_result(
             &self,
             _question: &str,
-            _options: Vec<String>,
+            _options: &[String],
         ) -> Result<String> {
             unimplemented!()
         }
@@ -244,7 +225,6 @@ mod tests {
     #[derive(Clone, Debug)]
     struct VectorDBEntry {
         id: u64,
-        embedding: Vec<f32>,
         payload: HashMap<String, String>,
     }
 
@@ -278,7 +258,7 @@ mod tests {
             &self,
             collection_name: &str,
             id: u64,
-            embedding: Vec<f32>,
+            _embedding: &[f32],
             payload: HashMap<String, String>,
         ) -> Result<bool> {
             let mut entries = self.store_embeddings.lock().unwrap();
@@ -294,19 +274,15 @@ mod tests {
             }
 
             // Insert a new entry
-            collection.push(VectorDBEntry {
-                id,
-                embedding,
-                payload,
-            });
+            collection.push(VectorDBEntry { id, payload });
             Ok(true)
         }
 
         async fn search_points(
             &self,
             collection_name: &str,
+            _input_vectors: &[f32],
             _payload_required: HashMap<String, String>,
-            _input_vectors: Vec<f32>,
         ) -> Result<Vec<VectorSearchResult>> {
             let entries = self.store_embeddings.lock().unwrap();
             match entries.get(collection_name) {

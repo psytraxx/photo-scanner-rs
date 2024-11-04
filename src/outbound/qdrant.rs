@@ -1,5 +1,5 @@
 use crate::domain::{models::VectorSearchResult, ports::VectorDB};
-use anyhow::Result;
+use anyhow::{Error, Result};
 use async_trait::async_trait;
 use qdrant_client::{
     qdrant::{
@@ -36,7 +36,7 @@ impl VectorDB for QdrantClient {
             )
             .await
             .map(|r| r.result)
-            .map_err(anyhow::Error::from)
+            .map_err(Error::from)
     }
 
     async fn delete_collection(&self, collection_name: &str) -> Result<bool> {
@@ -44,37 +44,37 @@ impl VectorDB for QdrantClient {
             .delete_collection(collection_name)
             .await
             .map(|r| r.result)
-            .map_err(anyhow::Error::from)
+            .map_err(Error::from)
     }
 
     async fn upsert_points(
         &self,
         collection_name: &str,
         id: u64,
-        embedding: Vec<f32>,
+        embedding: &[f32],
         payload: HashMap<String, String>,
     ) -> Result<bool> {
         let payload = json!(payload);
 
         match Payload::try_from(payload) {
             Ok(payload) => {
-                let point = PointStruct::new(id, embedding, payload);
+                let point = PointStruct::new(id, embedding.to_vec(), payload);
                 let request = UpsertPointsBuilder::new(collection_name, vec![point]).build();
                 self.client
                     .upsert_points(request)
                     .await
                     .map(|r| r.result.is_some())
-                    .map_err(anyhow::Error::from)
+                    .map_err(Error::from)
             }
-            Err(e) => Err(anyhow::Error::from(e)),
+            Err(e) => Err(Error::from(e)),
         }
     }
 
     async fn search_points(
         &self,
         collection_name: &str,
+        input_vectors: &[f32],
         payload_required: HashMap<String, String>,
-        input_vectors: Vec<f32>,
     ) -> Result<Vec<VectorSearchResult>> {
         let filter: Vec<Condition> = payload_required
             .iter()
@@ -83,7 +83,7 @@ impl VectorDB for QdrantClient {
         let response = self
             .client
             .search_points(
-                SearchPointsBuilder::new(collection_name, input_vectors, 20)
+                SearchPointsBuilder::new(collection_name, input_vectors, 10)
                     .filter(Filter::all(filter))
                     .with_payload(PayloadIncludeSelector::new(vec![
                         "description".into(),
@@ -93,7 +93,7 @@ impl VectorDB for QdrantClient {
             )
             .await?;
 
-        let result: Vec<VectorSearchResult> = response.result.iter().map(|r| r.into()).collect();
+        let result = response.result.iter().map(|r| r.into()).collect();
         Ok(result)
     }
 
@@ -118,17 +118,20 @@ impl VectorDB for QdrantClient {
 
 impl From<&ScoredPoint> for VectorSearchResult {
     fn from(point: &ScoredPoint) -> Self {
-        let payload: HashMap<String, String> = point
+        let payload = point
             .payload
             .iter()
-            .map(|(k, v)| (k.clone(), v.clone().to_string()))
-            .collect();
+            .map(|(k, v)| (k.clone(), v.to_string()))
+            .collect::<HashMap<String, String>>();
+
         let score = point.score;
-        let id: u64 = match point.id.as_ref().unwrap().point_id_options {
+
+        let id = match point.id.as_ref().unwrap().point_id_options {
             Some(PointIdOptions::Num(id)) => id,
-            _ => panic!("Invalid point id"),
+            _ => 0,
         };
-        VectorSearchResult { id, score, payload }
+
+        Self { id, score, payload }
     }
 }
 
@@ -141,9 +144,9 @@ impl From<&RetrievedPoint> for VectorSearchResult {
             .collect();
         let id: u64 = match point.id.as_ref().unwrap().point_id_options {
             Some(PointIdOptions::Num(id)) => id,
-            _ => panic!("Invalid point id"),
+            _ => 0,
         };
-        VectorSearchResult {
+        Self {
             id,
             score: 1.0, // Not used in this context
             payload,
@@ -161,12 +164,14 @@ mod tests {
         let mut payload = HashMap::new();
         payload.insert("test".to_string(), "test".into());
 
+        let payload_len = &payload.len();
+
         let scored_point = ScoredPoint {
             id: Some(PointId {
                 point_id_options: Some(PointIdOptions::Num(123)),
             }),
             score: 0.9,
-            payload: payload.clone(),
+            payload,
             ..ScoredPoint::default()
         };
 
@@ -174,7 +179,7 @@ mod tests {
 
         assert_eq!(result.id, 123);
         assert_eq!(result.score, 0.9);
-        assert_eq!(result.payload.len(), payload.len());
+        assert_eq!(result.payload.len(), *payload_len);
     }
 
     #[test]
@@ -182,11 +187,13 @@ mod tests {
         let mut payload = HashMap::new();
         payload.insert("key1".to_string(), "test".into());
 
+        let payload_len = &payload.len();
+
         let retrieved_point = RetrievedPoint {
             id: Some(PointId {
                 point_id_options: Some(PointIdOptions::Num(456)),
             }),
-            payload: payload.clone(),
+            payload,
             ..RetrievedPoint::default()
         };
 
@@ -194,6 +201,6 @@ mod tests {
 
         assert_eq!(result.id, 456);
         assert_eq!(result.score, 1.0); // Default score
-        assert_eq!(result.payload.len(), payload.len());
+        assert_eq!(result.payload.len(), *payload_len);
     }
 }

@@ -227,7 +227,7 @@ mod tests {
         async fn process_search_result(
             &self,
             _question: &str,
-            _options: Vec<String>,
+            _options: &[String],
         ) -> Result<String> {
             unimplemented!()
         }

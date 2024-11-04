@@ -1,19 +1,17 @@
 use crate::domain::ports::Chat;
 use anyhow::Result;
+use async_openai::types::ChatCompletionRequestMessageContentPartTextArgs;
 use async_openai::{
     config::OpenAIConfig,
     types::{
-        ChatCompletionRequestMessageContentPartImageArgs,
-        ChatCompletionRequestMessageContentPartText,
-        ChatCompletionRequestMessageContentPartTextArgs, ChatCompletionRequestSystemMessageArgs,
-        ChatCompletionRequestUserMessageArgs, ChatCompletionRequestUserMessageContentPart,
-        CreateChatCompletionRequestArgs, CreateEmbeddingRequest, CreateEmbeddingResponse,
-        EmbeddingInput, ImageDetail, ImageUrlArgs, Role,
+        ChatCompletionRequestMessageContentPartImageArgs, ChatCompletionRequestSystemMessageArgs,
+        ChatCompletionRequestUserMessageArgs, CreateChatCompletionRequestArgs,
+        CreateEmbeddingRequestArgs, EmbeddingInput, ImageDetail, ImageUrlArgs, Role,
     },
 };
 use async_trait::async_trait;
 use std::{env::var, vec::Vec};
-use tracing::error;
+use tracing::debug;
 
 const EMBEDDING_MODEL: &str = "mxbai-embed-large";
 const BASE_URL: &str = "http://localhost:11434/v1";
@@ -126,66 +124,53 @@ impl Chat for OpenAI {
 
         let request = CreateChatCompletionRequestArgs::default()
             .max_tokens(512u16)
-            .model(self.multimodal_model.clone())
+            .model(&self.multimodal_model)
             .messages(messages)
             .build()?;
 
-        tracing::debug!("OpenAI Request: {:?}", request.messages);
+        debug!("OpenAI Request: {:?}", request.messages);
         let response = self.openai_client.chat().create(request).await?;
         Ok(process_openai_response(response))
     }
 
     async fn get_embedding(&self, text: &str) -> Result<Vec<f32>> {
-        let request = CreateEmbeddingRequest {
-            model: self.embedding_model.clone(),
-            input: EmbeddingInput::String(text.into()),
-            ..Default::default()
-        };
+        let input = EmbeddingInput::String(text.into());
 
-        let response: CreateEmbeddingResponse =
-            match self.openai_client.embeddings().create(request).await {
-                Ok(response) => response,
-                Err(e) => {
-                    error!("Failed to create embedding: {:?}", e);
-                    Err(anyhow::Error::from(e))?
-                }
-            };
+        let request = CreateEmbeddingRequestArgs::default()
+            .model(&self.embedding_model)
+            .input(input)
+            .build()?;
+
+        let response = self.openai_client.embeddings().create(request).await?;
 
         // Extract the first embedding vector from the response
         let embedding = &response.data[0].embedding;
         Ok(embedding.clone())
     }
 
-    async fn process_search_result(&self, question: &str, options: Vec<String>) -> Result<String> {
-        let options: Vec<ChatCompletionRequestUserMessageContentPart> = options
-            .iter()
-            .map(|o| ChatCompletionRequestMessageContentPartText { text: o.clone() }.into())
-            .collect();
-
-        let messages = vec![
+    async fn process_search_result(&self, question: &str, options: &[String]) -> Result<String> {
+        let messages =
+            vec![
             ChatCompletionRequestSystemMessageArgs::default()
                 .content(
-                    "You are a helpful assistant answering the given question using given options.",
+                    "You are a helpful assistant answering the question using the provided options.",
                 )
                 .build()?
                 .into(),
             ChatCompletionRequestUserMessageArgs::default()
-                .content(question)
-                .build()?
-                .into(),
-            ChatCompletionRequestUserMessageArgs::default()
-                .content(options)
+                .content(format!("\nQuestion: {}Options: {}", question, options.join("\n")))
                 .build()?
                 .into(),
         ];
 
         let request = CreateChatCompletionRequestArgs::default()
             .max_tokens(512u16)
-            .model(self.chat_model.clone())
+            .model(&self.chat_model)
             .messages(messages)
+            .temperature(0.2)
             .build()?;
 
-        tracing::debug!("OpenAI Request: {:?}", request.messages);
+        debug!("OpenAI Request: {:?}", request.messages);
         let response = self.openai_client.chat().create(request).await?;
         Ok(process_openai_response(response))
     }

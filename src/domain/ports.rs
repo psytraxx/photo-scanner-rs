@@ -15,7 +15,7 @@ pub trait Chat: 'static + Send + Sync {
 
     async fn get_embedding(&self, text: &str) -> Result<Vec<f32>>;
 
-    async fn process_search_result(&self, question: &str, options: Vec<String>) -> Result<String>;
+    async fn process_search_result(&self, question: &str, options: &[String]) -> Result<String>;
 }
 
 pub trait ImageEncoder: 'static + Send + Sync {
@@ -39,15 +39,15 @@ pub trait VectorDB: 'static + Sync + Send {
         &self,
         collection_name: &str,
         id: u64,
-        embedding: Vec<f32>,
+        embedding: &[f32],
         payload: HashMap<String, String>,
     ) -> Result<bool>;
 
     async fn search_points(
         &self,
         collection_name: &str,
+        input_vectors: &[f32],
         payload_required: HashMap<String, String>,
-        input_vectors: Vec<f32>,
     ) -> Result<Vec<VectorSearchResult>>;
 
     async fn find_by_id(
