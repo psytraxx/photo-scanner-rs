@@ -1,8 +1,11 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use std::path::Path;
 use tracing::debug;
-use xmp_toolkit::{xmp_ns::DC, IterOptions, OpenFileOptions, XmpFile, XmpMeta};
+use xmp_toolkit::{
+    xmp_ns::{DC, EXIF},
+    IterOptions, OpenFileOptions, XmpFile, XmpMeta,
+};
 
 use crate::domain::ports::XMPMetadata;
 
@@ -19,36 +22,45 @@ impl XMPToolkitMetadata {
 
 #[async_trait]
 impl XMPMetadata for XMPToolkitMetadata {
-    fn get_xmp_description(&self, path: &Path) -> Result<Option<String>> {
+    fn get_description(&self, path: &Path) -> Result<Option<String>> {
         let mut xmp_file = open(path)?;
-
-        let result = match xmp_file.xmp() {
-            Some(xmp) => {
-                let existing_xmp = xmp;
-                match existing_xmp.localized_text(DC, XMP_DESCRIPTION, None, "x-default") {
-                    Some(description) => {
-                        let description = description.0.value;
-                        debug!("Description in XMP data: {:?}", description);
-                        Some(description)
-                    }
-                    None => {
-                        debug!("No description in XMP data.");
-                        None
-                    }
-                }
-            }
-            None => {
-                debug!("No XMP metadata found.");
-                None
-            }
-        };
-
+        let xmp = xmp_file.xmp().context("No XMP metadata found")?;
         xmp_file.close();
 
-        Ok(result)
+        match xmp.localized_text(DC, XMP_DESCRIPTION, None, "x-default") {
+            Some(description) => {
+                let description = description.0.value;
+                debug!("Description in XMP data: {:?}", description);
+                Ok(Some(description))
+            }
+            None => {
+                debug!("No description in XMP data.");
+                Ok(None)
+            }
+        }
     }
 
-    fn write_xmp_description(&self, text: &str, path: &Path) -> Result<()> {
+    fn get_geolocation(&self, path: &Path) -> Result<Option<String>> {
+        let mut xmp_file = open(path)?;
+        let xmp = xmp_file.xmp().context("No XMP metadata found")?;
+        xmp_file.close();
+
+        let longitude = xmp.property(EXIF, "GPSLongitude").map(|val| val.value);
+        let latitude = xmp.property(EXIF, "GPSLatitude").map(|val| val.value);
+
+        if let (Some(latitude), Some(longitude)) = (latitude, longitude) {
+            if let (Some(latitude), Some(longitude)) = (dms_to_dd(&latitude), dms_to_dd(&longitude))
+            {
+                Ok(Some(format!("{},{}", latitude, longitude)))
+            } else {
+                Ok(None)
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn set_description(&self, text: &str, path: &Path) -> Result<()> {
         let mut xmp_file = open(path)?;
 
         let mut xmp = match xmp_file.xmp() {
@@ -70,7 +82,7 @@ impl XMPMetadata for XMPToolkitMetadata {
         Ok(())
     }
 
-    fn extract_persons(&self, path: &Path) -> Result<Vec<String>> {
+    fn get_persons(&self, path: &Path) -> Result<Vec<String>> {
         let mut xmp_file = open(path)?;
         let result = match xmp_file.xmp() {
             Some(xmp) => {
@@ -119,15 +131,42 @@ fn open(path: &Path) -> Result<XmpFile> {
     Ok(xmp_file)
 }
 
+/// Convert DMS (degrees, minutes, seconds) to decimal degrees
+fn dms_to_dd(dms: &str) -> Option<f64> {
+    // Remove the directional character (N/S) and split by comma
+    let (coords, direction) = dms.split_at(dms.len() - 1);
+    let parts: Vec<&str> = coords.split(',').collect();
+
+    if parts.len() != 2 {
+        return None;
+    }
+
+    let degrees = parts[0].trim().parse::<f64>().ok()?;
+    let minutes = parts[1].trim().parse::<f64>().ok()?;
+
+    // Convert DMS to decimal degrees
+    let dd = degrees + (minutes / 60.0);
+
+    // Adjust for direction
+    match direction.trim() {
+        "N" | "E" => Some(dd),  // North and East are positive
+        "S" | "W" => Some(-dd), // South and West are negative
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use tracing::Level;
 
     use super::*;
-    use std::path::Path;
+    use std::{
+        fs::{copy, remove_file},
+        path::{Path, PathBuf},
+    };
 
     #[test]
-    fn test_extract_persons() -> Result<()> {
+    fn test_get_persons() -> Result<()> {
         tracing_subscriber::fmt()
             .with_max_level(Level::DEBUG)
             .with_ansi(true)
@@ -140,32 +179,77 @@ mod tests {
         let tool = XMPToolkitMetadata::new();
 
         // Check that the description has been written correctly
-        let faces = tool.extract_persons(path)?;
+        let faces = tool.get_persons(path)?;
         assert_eq!(faces.len(), 1);
 
         Ok(())
     }
 
     #[test]
-    fn test_get_xmp_description() -> Result<()> {
-        let path = Path::new("testdata/picasa/PXL_20230408_060152625.jpg");
+    fn test_set_and_get_description() -> Result<()> {
+        let temp_dir = tempfile::tempdir()?;
+        let destination_file_path = temp_dir.path().join("4L2A3805.jpg");
+
+        // Copy an existing JPEG file to the temporary directory
+        let source_file = PathBuf::from("testdata/sizilien/4L2A3805.jpg");
+        copy(&source_file, &destination_file_path)?;
+
         let tool = XMPToolkitMetadata::new();
 
+        let test_description = "This is a test description";
+        tool.set_description(test_description, &destination_file_path)?;
+
         // Check that the description has been written correctly
-        let description = tool.get_xmp_description(path)?;
-        assert!(description.is_some());
+        let description = tool.get_description(&destination_file_path)?;
+        assert_eq!(description, Some(test_description.to_string()));
+
+        // Clean up by deleting the temporary file
+        remove_file(&destination_file_path)?;
 
         Ok(())
     }
 
     #[test]
-    fn test_get_xmp_description_missing() -> Result<()> {
+    fn test_get_geolocation() -> Result<()> {
+        let path = Path::new("testdata/gps/DSCN0029.jpg");
+        let tool = XMPToolkitMetadata::new();
+
+        // Check that the description has been written correctly
+        let description = tool.get_geolocation(path)?;
+        assert!(description.is_some());
+
+        assert_eq!(
+            "43.468243333333334,11.880171666666667",
+            description.unwrap()
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_description_missing() -> Result<()> {
         let path = Path::new("testdata/sizilien/4L2A3805.jpg");
         let tool = XMPToolkitMetadata::new();
         // Check that the description has been written correctly
-        let description = tool.get_xmp_description(path)?;
+        let description = tool.get_description(path)?;
         assert!(description.is_none());
 
         Ok(())
+    }
+
+    #[test]
+    fn test_dms_to_dd() {
+        // Testing conversion of North and East coordinates
+        assert_eq!(dms_to_dd("43,28.09460000N"), Some(43.468243333333334));
+        assert_eq!(dms_to_dd("11,52.8103000E"), Some(11.880171666666667));
+
+        // Testing conversion of South and West coordinates
+        assert_eq!(dms_to_dd("43,28.09460000S"), Some(-43.468243333333334));
+        assert_eq!(dms_to_dd("11,52.8103000W"), Some(-11.880171666666667));
+
+        // Testing invalid inputs
+        assert_eq!(dms_to_dd("43,28.09460000X"), None);
+        assert_eq!(dms_to_dd("43.28.09460000X"), None);
+        assert_eq!(dms_to_dd("40"), None);
     }
 }
