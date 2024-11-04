@@ -73,7 +73,7 @@ impl EmbeddingsService {
 
     async fn process_path(&self, path: &PathBuf) -> Result<()> {
         // Extract persons from the image, handling any errors.
-        match self.xmp_metadata.get_xmp_description(path) {
+        match self.xmp_metadata.get_description(path) {
             Ok(Some(description)) => {
                 let mut hasher = DefaultHasher::new();
                 path.hash(&mut hasher);

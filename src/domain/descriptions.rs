@@ -63,7 +63,7 @@ impl DescriptionService {
                     let start_time = Instant::now();
 
                     // Extract persons from the image, handling any errors.
-                    let persons = match self.xmp_metadata.extract_persons(&path) {
+                    let persons = match self.xmp_metadata.get_persons(&path) {
                         Ok(persons) => persons,
                         Err(e) => {
                             warn!("Error extracting persons from {}: {}", path.display(), e);
@@ -103,7 +103,7 @@ impl DescriptionService {
                         error!("Error getting embedding for {}: {}", &path.display(), e);
                     } */
 
-                    if let Err(e) = self.xmp_metadata.write_xmp_description(&description, &path) {
+                    if let Err(e) = self.xmp_metadata.set_description(&description, &path) {
                         error!(
                             "Error storing XMP description for {}: {}",
                             path.display(),
@@ -132,7 +132,7 @@ impl DescriptionService {
     /// Function to check if the file can be skipped.
     fn can_be_skipped(&self, path: &Path) -> bool {
         // Skip files that already have an XMP description.
-        match self.xmp_metadata.get_xmp_description(path) {
+        match self.xmp_metadata.get_description(path) {
             Ok(Some(description)) => {
                 let re = Regex::new(r"(?i)\b(image|photo|picture|photograph)\b").unwrap();
                 if re.is_match(&description) {
@@ -195,7 +195,7 @@ mod tests {
         // Generate descriptions for the files in the temporary directory
         service.generate(&temp_dir.path().into()).await?;
 
-        let contents = xmp_metadata.get_xmp_description(&destination_file_path)?;
+        let contents = xmp_metadata.get_description(&destination_file_path)?;
 
         // Verify the content of the XMP file
         assert_eq!(contents, Some("description".to_string()));

@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use little_exif::{exif_tag::ExifTag, ifd::ExifTagGroup, metadata::Metadata};
+use little_exif::{endian::Endian, exif_tag::ExifTag, ifd::ExifTagGroup, metadata::Metadata};
 use std::{char::decode_utf16, path::Path};
 use tracing::debug;
 
@@ -37,45 +37,32 @@ pub fn get_exif_description(path: &Path) -> Result<Option<String>> {
 pub fn get_exif_location(path: &Path) -> Result<Option<String>> {
     let metadata = Metadata::new_from_path(path)?;
     let endian = metadata.get_endian();
-    let latitude = match metadata
-        .get_tag_by_hex(
-            ExifTag::GPSLatitude(Vec::new()).as_u16(),
-            Some(ExifTagGroup::GPS),
-        )
-        .next()
-    {
-        Some(tag) => {
-            let bytes = tag.value_as_u8_vec(&endian);
-            bytes_to_geolocation(&bytes).ok()
-        }
-        None => {
-            debug!("Tag does not exist");
-            None
-        }
-    };
-    let longitude: Option<f64> = match metadata
-        .get_tag_by_hex(
-            ExifTag::GPSLongitude(Vec::new()).as_u16(),
-            Some(ExifTagGroup::GPS),
-        )
-        .next()
-    {
-        Some(tag) => {
-            let bytes = tag.value_as_u8_vec(&endian);
-            bytes_to_geolocation(&bytes).ok()
-        }
-        None => {
-            debug!("Tag does not exist");
-            None
-        }
-    };
-    if latitude.is_some() && longitude.is_some() {
-        Ok(Some(format!(
-            "{},{}",
-            latitude.unwrap(),
-            longitude.unwrap()
-        )))
+
+    let latitude =
+        get_geolocation_from_metadata(&metadata, ExifTag::GPSLatitude(Vec::new()), &endian)?;
+    let longitude =
+        get_geolocation_from_metadata(&metadata, ExifTag::GPSLongitude(Vec::new()), &endian)?;
+
+    if let (Some(lat), Some(long)) = (latitude, longitude) {
+        Ok(Some(format!("{},{}", lat, long)))
     } else {
+        Ok(None)
+    }
+}
+
+fn get_geolocation_from_metadata<T: Into<ExifTag>>(
+    metadata: &Metadata,
+    tag: T,
+    endian: &Endian,
+) -> Result<Option<f64>> {
+    if let Some(tag) = metadata
+        .get_tag_by_hex(tag.into().as_u16(), Some(ExifTagGroup::GPS))
+        .next()
+    {
+        let bytes = tag.value_as_u8_vec(endian);
+        bytes_to_geolocation(&bytes).map(Some)
+    } else {
+        debug!("Tag does not exist");
         Ok(None)
     }
 }
@@ -170,18 +157,11 @@ mod tests {
 
     #[test]
     fn test_get_exif_description_none() -> Result<()> {
-        let temp_dir = tempfile::tempdir()?;
-        let destination_file_path = temp_dir.path().join("4L2A3805.jpg");
-
         // Copy an existing JPEG file to the temporary directory
         let source_file = PathBuf::from("testdata/sizilien/4L2A3805.jpg");
-        copy(&source_file, &destination_file_path)?;
 
-        let result = get_exif_description(&destination_file_path).unwrap();
+        let result = get_exif_description(&source_file).unwrap();
         assert_eq!(result, None);
-
-        // Clean up by deleting the temporary file
-        remove_file(&destination_file_path)?;
 
         Ok(())
     }
