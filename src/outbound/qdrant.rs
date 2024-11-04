@@ -137,15 +137,21 @@ impl From<&ScoredPoint> for VectorSearchResult {
 
 impl From<&RetrievedPoint> for VectorSearchResult {
     fn from(point: &RetrievedPoint) -> Self {
-        let payload = point
+        let payload: HashMap<_, _> = point
             .payload
             .iter()
-            .map(|(k, v)| (k.clone(), v.as_str().unwrap().to_string()))
+            .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
             .collect();
-        let id: u64 = match point.id.as_ref().unwrap().point_id_options {
-            Some(PointIdOptions::Num(id)) => id,
-            _ => 0,
-        };
+
+        let id = point
+            .id
+            .as_ref()
+            .and_then(|id| match id.point_id_options {
+                Some(PointIdOptions::Num(id)) => Some(id),
+                _ => None,
+            })
+            .unwrap_or_default();
+
         Self {
             id,
             score: 1.0, // Not used in this context

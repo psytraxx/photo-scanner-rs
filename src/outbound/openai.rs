@@ -1,6 +1,8 @@
 use crate::domain::ports::Chat;
 use anyhow::Result;
-use async_openai::types::ChatCompletionRequestMessageContentPartTextArgs;
+use async_openai::types::{
+    ChatCompletionRequestMessageContentPartTextArgs, CreateChatCompletionResponse,
+};
 use async_openai::{
     config::OpenAIConfig,
     types::{
@@ -133,8 +135,8 @@ impl Chat for OpenAI {
         Ok(process_openai_response(response))
     }
 
-    async fn get_embedding(&self, text: &str) -> Result<Vec<f32>> {
-        let input = EmbeddingInput::String(text.into());
+    async fn get_embeddings(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>> {
+        let input = EmbeddingInput::StringArray(texts);
 
         let request = CreateEmbeddingRequestArgs::default()
             .model(&self.embedding_model)
@@ -143,9 +145,9 @@ impl Chat for OpenAI {
 
         let response = self.openai_client.embeddings().create(request).await?;
 
-        // Extract the first embedding vector from the response
-        let embedding = &response.data[0].embedding;
-        Ok(embedding.clone())
+        // Extract all embeddings from the response - they are in the same order as the input texts
+        let embeddings: Vec<Vec<f32>> = response.data.into_iter().map(|d| d.embedding).collect();
+        Ok(embeddings)
     }
 
     async fn process_search_result(&self, question: &str, options: &[String]) -> Result<String> {
@@ -176,7 +178,7 @@ impl Chat for OpenAI {
     }
 }
 
-fn process_openai_response(response: async_openai::types::CreateChatCompletionResponse) -> String {
+fn process_openai_response(response: CreateChatCompletionResponse) -> String {
     response
         .choices
         .iter()

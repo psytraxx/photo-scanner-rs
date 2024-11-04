@@ -13,7 +13,7 @@ pub trait Chat: 'static + Send + Sync {
         folder_name: &Option<String>,
     ) -> Result<String>;
 
-    async fn get_embedding(&self, text: &str) -> Result<Vec<f32>>;
+    async fn get_embeddings(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>>;
 
     async fn process_search_result(&self, question: &str, options: &[String]) -> Result<String>;
 }

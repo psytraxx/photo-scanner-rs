@@ -220,7 +220,7 @@ mod tests {
         }
 
         // Mock implementation for get_embedding
-        async fn get_embedding(&self, _text: &str) -> Result<Vec<f32>> {
+        async fn get_embeddings(&self, _texts: Vec<String>) -> Result<Vec<Vec<f32>>> {
             unimplemented!()
         }
 

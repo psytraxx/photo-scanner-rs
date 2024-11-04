@@ -28,10 +28,10 @@ async fn main() -> Result<()> {
     // which festivals has annina visited in in the last years
     let question = "which cities did we visit in japan";
 
-    let question_embeddigs = chat.get_embedding(question).await?;
+    let embeddings = chat.get_embeddings(vec![question.to_string()]).await?;
 
     let result = vector_db
-        .search_points("photos", &question_embeddigs, HashMap::new())
+        .search_points("photos", embeddings[0].as_slice(), HashMap::new())
         .await?;
 
     let result: Vec<String> = result
@@ -43,7 +43,7 @@ async fn main() -> Result<()> {
 
     let result = chat.process_search_result(question, &result).await?;
 
-    info!("{:?}", result);
+    info!("{}", result);
 
     Ok(())
 }

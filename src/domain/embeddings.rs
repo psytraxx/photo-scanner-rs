@@ -3,7 +3,6 @@ use super::{
     ports::{Chat, VectorDB, XMPMetadata},
 };
 use anyhow::Result;
-use futures::{stream::iter, StreamExt};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::{
     collections::HashMap,
@@ -11,10 +10,10 @@ use std::{
     path::PathBuf,
     sync::Arc,
 };
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
-// Maximum number of concurrent tasks for embeddings API
-const MAX_CONCURRENT_TASKS: usize = 2;
+// Maximum number of chunks for embeddings API
+const CHUNK_SIZE: usize = 10;
 const COLLECTION_NAME: &str = "photos";
 const DROP_COLLECTION: bool = false;
 
@@ -49,93 +48,100 @@ impl EmbeddingsService {
         // Create a progress bar with the total length of the vector.
         let progress_bar = Arc::new(ProgressBar::new(files_list.len() as u64));
         progress_bar.set_style(
-            ProgressStyle::default_bar().template(
-                "Processing {msg} [{elapsed_precise}] [{wide_bar}] {pos}/{len} ({eta})",
-            )?,
+            ProgressStyle::default_bar()
+                .template("Processing [{elapsed_precise}] [{wide_bar}] {pos}/{len} ({eta})")?,
         );
 
-        iter(files_list)
-            .for_each_concurrent(MAX_CONCURRENT_TASKS, |path| {
-                let progress_bar = Arc::clone(&progress_bar);
-                let message = path.parent().unwrap().display().to_string();
-                async move {
-                    progress_bar.inc(1);
-                    progress_bar.set_message(message);
+        for chunk in files_list.chunks(CHUNK_SIZE) {
+            let progress_bar = Arc::clone(&progress_bar);
 
-                    if let Err(e) = self.process_path(&path).await {
-                        error!("Error processing path {}: {}", path.display(), e);
-                    }
-                }
-            })
-            .await;
+            progress_bar.inc(chunk.len() as u64);
+
+            if let Err(e) = self.process_paths(chunk).await {
+                error!("Error processing chunk {:?}: {}", chunk, e);
+            }
+        }
         Ok(())
     }
 
-    async fn process_path(&self, path: &PathBuf) -> Result<()> {
-        // Extract persons from the image, handling any errors.
-        match self.xmp_metadata.get_description(path) {
-            Ok(Some(description)) => {
+    async fn process_paths(&self, paths: &[PathBuf]) -> Result<()> {
+        struct EmbeddingTask {
+            id: u64,
+            description: String,
+            path: PathBuf,
+        }
+
+        let mut tasks = Vec::new();
+
+        for path in paths {
+            if let Some(description) = self.xmp_metadata.get_description(path)? {
                 let mut hasher = DefaultHasher::new();
                 path.hash(&mut hasher);
                 let id = hasher.finish();
 
-                let existing_entry = self.vector_db.find_by_id(COLLECTION_NAME, &id).await?;
-
-                if let Some(existing_entry) = existing_entry {
+                if let Some(existing_entry) =
+                    self.vector_db.find_by_id(COLLECTION_NAME, &id).await?
+                {
                     if let Some(existing_description) = existing_entry.payload.get("description") {
                         if existing_description.contains(&description) {
                             info!(
                                 "Skipping {} because of existing ID with same description",
                                 path.display()
                             );
-                            return Ok(());
+                            continue;
                         }
                     }
                 }
 
-                let embedding = self.chat.get_embedding(&description).await?;
+                tasks.push(EmbeddingTask {
+                    id,
+                    description,
+                    path: path.clone(),
+                });
+            } else {
+                warn!("Skipping {} because of missing description", path.display());
+            }
+        }
 
-                let message = path
+        if !tasks.is_empty() {
+            let descriptions: Vec<String> = tasks
+                .iter()
+                .map(|result| result.description.clone())
+                .collect();
+            let embeddings = self.chat.get_embeddings(descriptions).await?;
+
+            for (result, embedding) in tasks.iter().zip(embeddings.iter()) {
+                let message = result
+                    .path
                     .parent()
                     .unwrap()
                     .file_name()
                     .unwrap()
                     .to_str()
                     .unwrap();
+
                 let mut payload = HashMap::new();
-                payload.insert("path".to_string(), path.display().to_string());
-                payload.insert("description".to_string(), description);
+                payload.insert("path".to_string(), result.path.display().to_string());
+                payload.insert("description".to_string(), result.description.clone());
                 payload.insert("folder".to_string(), message.into());
 
                 info!(
                     "Processing {}: {:?} {:?}, {}",
-                    path.display(),
+                    result.path.display(),
                     &payload,
                     embedding.len(),
-                    id
+                    result.id
                 );
 
-                let success = self
-                    .vector_db
-                    .upsert_points(COLLECTION_NAME, id, &embedding, payload)
+                self.vector_db
+                    .upsert_points(COLLECTION_NAME, result.id, embedding, payload)
                     .await?;
+            }
 
-                debug!("Upserted points success: {}", success);
-
-                Ok(())
-            }
-            Ok(None) => {
-                warn!(
-                    "Skipping {} because of missing XMP descripton ",
-                    path.display()
-                );
-                Ok(())
-            }
-            Err(e) => {
-                error!("Error while processing {}: {}", path.display(), e);
-                Err(e)
-            }
+            return Ok(());
         }
+
+        Ok(())
     }
 }
 
@@ -202,11 +208,10 @@ mod tests {
             unimplemented!()
         }
 
-        // Mock implementation for get_embedding
-        async fn get_embedding(&self, _text: &str) -> Result<Vec<f32>> {
+        async fn get_embeddings(&self, _texts: Vec<String>) -> Result<Vec<Vec<f32>>> {
             let mut rng = rand::thread_rng();
             let embedding: Vec<f32> = (0..1536).map(|_| rng.gen()).collect();
-            Ok(embedding)
+            Ok(vec![embedding])
         }
 
         async fn process_search_result(
