@@ -34,7 +34,7 @@ pub trait VectorDB: 'static + Sync + Send {
 
     async fn delete_collection(&self, text: &str) -> Result<bool>;
 
-    async fn upsert_points(&self, collection_name: &str, input: VectorInput) -> Result<bool>;
+    async fn upsert_points(&self, collection_name: &str, inputs: &[VectorInput]) -> Result<bool>;
 
     async fn search_points(
         &self,

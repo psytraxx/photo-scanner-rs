@@ -4,17 +4,20 @@ use super::{
 };
 use crate::domain::models::VectorInput;
 use anyhow::Result;
+use futures::stream::{iter, StreamExt};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::{
     collections::HashMap,
     hash::{DefaultHasher, Hash, Hasher},
     path::PathBuf,
     sync::Arc,
+    time::Duration,
 };
+use tokio::time::sleep;
 use tracing::{error, info, warn};
 
 // Maximum number of chunks for embeddings API
-const CHUNK_SIZE: usize = 10;
+const CHUNK_SIZE: usize = 25;
 const COLLECTION_NAME: &str = "photos";
 const DROP_COLLECTION: bool = false;
 
@@ -38,7 +41,6 @@ impl EmbeddingsService {
     }
 
     pub async fn generate(&self, root_path: &PathBuf) -> Result<()> {
-        // Traverse the files and process them with limited concurrency.
         let files_list = list_jpeg_files(root_path)?;
 
         if DROP_COLLECTION {
@@ -46,106 +48,132 @@ impl EmbeddingsService {
             self.vector_db.create_collection(COLLECTION_NAME).await?;
         }
 
-        // Create a progress bar with the total length of the vector.
         let progress_bar = Arc::new(ProgressBar::new(files_list.len() as u64));
         progress_bar.set_style(
             ProgressStyle::default_bar()
-                .template("Processing [{elapsed_precise}] [{wide_bar}] {pos}/{len} ({eta})")?,
+                .template("Processing [{elapsed_precise}] [{wide_bar}] {pos}/{len} ({eta})")
+                .expect("Invalid progress bar style"),
         );
 
-        for chunk in files_list.chunks(CHUNK_SIZE) {
-            let progress_bar = Arc::clone(&progress_bar);
+        let chunks = files_list.chunks(CHUNK_SIZE);
 
+        for chunk in chunks {
             progress_bar.inc(chunk.len() as u64);
-
-            if let Err(e) = self.process_paths(chunk).await {
-                error!("Error processing chunk {:?}: {}", chunk, e);
+            if let Err(e) = self.process_paths(chunk.to_vec()).await {
+                error!("Error processing chunk: {}", e);
             }
         }
+
+        progress_bar.finish();
         Ok(())
     }
 
-    async fn process_paths(&self, paths: &[PathBuf]) -> Result<()> {
+    async fn process_paths(&self, paths: Vec<PathBuf>) -> Result<()> {
+        #[derive(Debug)]
         struct EmbeddingTask {
             id: u64,
             description: String,
             path: PathBuf,
         }
 
-        let mut tasks = Vec::new();
+        let path_futures = paths.into_iter().map(|path| async move {
+            // Try to retrieve the description from the XMP metadata
+            let description = match self.xmp_metadata.get_description(&path) {
+                Ok(Some(description)) => description,
+                _ => {
+                    warn!(
+                        "Skipping {}: missing or failed to get description",
+                        path.display()
+                    );
+                    return None;
+                }
+            };
 
-        for path in paths {
-            if let Some(description) = self.xmp_metadata.get_description(path)? {
-                let mut hasher = DefaultHasher::new();
-                path.hash(&mut hasher);
-                let id = hasher.finish();
+            // Generate a unique ID for the path
+            let mut hasher = DefaultHasher::new();
+            path.hash(&mut hasher);
+            let id = hasher.finish();
 
-                if let Some(existing_entry) =
-                    self.vector_db.find_by_id(COLLECTION_NAME, &id).await?
-                {
-                    if let Some(existing_description) = existing_entry.payload.get("description") {
-                        if existing_description.contains(&description) {
-                            info!(
-                                "Skipping {} because of existing ID with same description",
-                                path.display()
-                            );
-                            continue;
-                        }
+            // Check for existing entry in the vector database
+            if let Ok(Some(existing_entry)) = self.vector_db.find_by_id(COLLECTION_NAME, &id).await
+            {
+                if let Some(existing_description) = existing_entry.payload.get("description") {
+                    if existing_description.contains(&description) {
+                        // Skip if the description matches
+                        info!(
+                            "Skipping {}: existing ID with the same description",
+                            path.display()
+                        );
+                        return None;
                     }
                 }
-
-                tasks.push(EmbeddingTask {
-                    id,
-                    description,
-                    path: path.clone(),
-                });
-            } else {
-                warn!("Skipping {} because of missing description", path.display());
-            }
-        }
-
-        if !tasks.is_empty() {
-            let descriptions: Vec<String> = tasks
-                .iter()
-                .map(|result| result.description.clone())
-                .collect();
-            let embeddings = self.chat.get_embeddings(descriptions).await?;
-
-            for (result, embedding) in tasks.iter().zip(embeddings.iter()) {
-                let message = result
-                    .path
-                    .parent()
-                    .unwrap()
-                    .file_name()
-                    .unwrap()
-                    .to_str()
-                    .unwrap();
-
-                let mut payload = HashMap::new();
-                payload.insert("path".to_string(), result.path.display().to_string());
-                payload.insert("description".to_string(), result.description.clone());
-                payload.insert("folder".to_string(), message.into());
-
-                let input = VectorInput {
-                    id: result.id,
-                    embedding: embedding.clone(),
-                    payload,
-                };
-
-                info!("Processing {}: {:?}", result.path.display(), &input);
-
-                self.vector_db.upsert_points(COLLECTION_NAME, input).await?;
             }
 
+            // No match found, create and return the task
+            Some(EmbeddingTask {
+                id,
+                description,
+                path,
+            })
+        });
+
+        // process fututres and collect tasks
+        let embedding_tasks: Vec<EmbeddingTask> = iter(path_futures)
+            .buffer_unordered(CHUNK_SIZE)
+            .filter_map(|task| async { task })
+            .collect::<Vec<_>>()
+            .await;
+
+        if embedding_tasks.is_empty() {
             return Ok(());
         }
+
+        // to avoid rate limiting, sleep for a while
+        sleep(Duration::from_millis(100)).await;
+
+        let descriptions: Vec<_> = embedding_tasks
+            .iter()
+            .map(|task| task.description.clone())
+            .collect();
+        let embeddings = self.chat.get_embeddings(descriptions).await?;
+
+        let inputs: Vec<VectorInput> = embedding_tasks
+            .into_iter()
+            .zip(embeddings.into_iter())
+            .map(|(task, embedding)| {
+                let folder_name = task
+                    .path
+                    .parent()
+                    .and_then(|parent| parent.file_name())
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("Unknown")
+                    .to_string();
+
+                let payload = HashMap::from([
+                    ("path".to_string(), task.path.display().to_string()),
+                    ("description".to_string(), task.description.clone()),
+                    ("folder".to_string(), folder_name),
+                ]);
+
+                VectorInput {
+                    id: task.id,
+                    embedding,
+                    payload,
+                }
+            })
+            .collect();
+
+        // Upsert the data into the vector database
+        self.vector_db
+            .upsert_points(COLLECTION_NAME, &inputs)
+            .await?;
 
         Ok(())
     }
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use crate::{
         domain::{
             embeddings::EmbeddingsService,
@@ -193,7 +221,7 @@ mod tests {
         Ok(())
     }
 
-    struct ChatMock;
+    pub struct ChatMock;
 
     #[async_trait]
     impl Chat for ChatMock {
@@ -203,7 +231,7 @@ mod tests {
             _persons: &[String],
             _folder_name: &Option<String>,
         ) -> Result<String> {
-            unimplemented!()
+            Ok("description".to_string())
         }
 
         async fn get_embeddings(&self, _texts: Vec<String>) -> Result<Vec<Vec<f32>>> {
@@ -251,7 +279,11 @@ mod tests {
             return Ok(None);
         }
 
-        async fn upsert_points(&self, collection_name: &str, input: VectorInput) -> Result<bool> {
+        async fn upsert_points(
+            &self,
+            collection_name: &str,
+            inputs: &[VectorInput],
+        ) -> Result<bool> {
             let mut entries = self.store_embeddings.lock().unwrap();
             if !entries.contains_key(collection_name) {
                 entries.insert(collection_name.to_string(), Vec::new());
@@ -259,16 +291,18 @@ mod tests {
 
             let collection = entries.get_mut(collection_name).unwrap();
 
-            // Find and remove an existing entry with the same ID
-            if collection.iter().any(|entry| entry.id == input.id) {
-                collection.retain(|entry| entry.id != input.id);
-            }
+            inputs.iter().for_each(|input| {
+                // Find and remove an existing entry with the same ID
+                if collection.iter().any(|entry| entry.id == input.id) {
+                    collection.retain(|entry| entry.id != input.id);
+                }
 
-            // Insert a new entry
-            collection.push(VectorInput {
-                id: input.id,
-                embedding: input.embedding.clone(),
-                payload: input.payload,
+                // Insert a new entry
+                collection.push(VectorInput {
+                    id: input.id,
+                    embedding: input.embedding.clone(),
+                    payload: input.payload.clone(),
+                });
             });
             Ok(true)
         }

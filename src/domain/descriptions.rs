@@ -157,22 +157,17 @@ impl DescriptionService {
 
 #[cfg(test)]
 mod tests {
-
+    use crate::{
+        domain::{
+            descriptions::DescriptionService, embeddings::tests::ChatMock, ports::XMPMetadata,
+        },
+        outbound::{image_provider::ImageCrateEncoder, xmp::XMPToolkitMetadata},
+    };
+    use anyhow::Result;
     use std::{
         fs::{copy, remove_file},
         path::PathBuf,
         sync::Arc,
-    };
-
-    use anyhow::Result;
-    use async_trait::async_trait;
-
-    use crate::{
-        domain::{
-            descriptions::DescriptionService,
-            ports::{Chat, XMPMetadata},
-        },
-        outbound::{image_provider::ImageCrateEncoder, xmp::XMPToolkitMetadata},
     };
     #[tokio::test]
     async fn test_generate_descriptions() -> Result<()> {
@@ -203,32 +198,5 @@ mod tests {
         remove_file(&destination_file_path)?;
 
         Ok(())
-    }
-
-    struct ChatMock;
-
-    #[async_trait]
-    impl Chat for ChatMock {
-        async fn get_image_description(
-            &self,
-            _image_base64: &str,
-            _persons: &[String],
-            _folder_name: &Option<String>,
-        ) -> Result<String> {
-            Ok("description".to_string())
-        }
-
-        // Mock implementation for get_embedding
-        async fn get_embeddings(&self, _texts: Vec<String>) -> Result<Vec<Vec<f32>>> {
-            unimplemented!()
-        }
-
-        async fn process_search_result(
-            &self,
-            _question: &str,
-            _options: &[String],
-        ) -> Result<String> {
-            unimplemented!()
-        }
     }
 }
