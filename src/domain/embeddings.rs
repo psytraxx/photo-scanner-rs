@@ -4,6 +4,7 @@ use super::{
 };
 use crate::domain::models::VectorInput;
 use anyhow::Result;
+use futures::stream::{iter, StreamExt};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::{
     collections::HashMap,
@@ -72,68 +73,91 @@ impl EmbeddingsService {
             path: PathBuf,
         }
 
-        let mut tasks = Vec::new();
+        let path_futures = paths.iter().map(|path| async {
+            // Try to retrieve the description from the XMP metadata
+            match self.xmp_metadata.get_description(path) {
+                Ok(Some(description)) => {
+                    // Generate a unique ID for the path
+                    let mut hasher = DefaultHasher::new();
+                    path.hash(&mut hasher);
+                    let id = hasher.finish();
 
-        for path in paths {
-            if let Some(description) = self.xmp_metadata.get_description(path)? {
-                let mut hasher = DefaultHasher::new();
-                path.hash(&mut hasher);
-                let id = hasher.finish();
-
-                if let Some(existing_entry) =
-                    self.vector_db.find_by_id(COLLECTION_NAME, &id).await?
-                {
-                    if let Some(existing_description) = existing_entry.payload.get("description") {
-                        if existing_description.contains(&description) {
-                            info!(
-                                "Skipping {} because of existing ID with same description",
-                                path.display()
-                            );
-                            continue;
+                    // Check if there is an existing entry in the vector database
+                    if let Ok(Some(existing_entry)) =
+                        self.vector_db.find_by_id(COLLECTION_NAME, &id).await
+                    {
+                        if let Some(existing_description) =
+                            existing_entry.payload.get("description")
+                        {
+                            if existing_description.contains(&description) {
+                                info!(
+                                    "Skipping {}: existing ID with the same description",
+                                    path.display()
+                                );
+                                return None;
+                            }
                         }
                     }
+
+                    // Return the task if no match was found
+                    Some(EmbeddingTask {
+                        id,
+                        description,
+                        path: path.clone(),
+                    })
                 }
-
-                tasks.push(EmbeddingTask {
-                    id,
-                    description,
-                    path: path.clone(),
-                });
-            } else {
-                warn!("Skipping {} because of missing description", path.display());
+                _ => {
+                    warn!(
+                        "Skipping {}: missing or failed to get description",
+                        path.display()
+                    );
+                    None
+                }
             }
-        }
+        });
 
-        if !tasks.is_empty() {
-            let descriptions: Vec<String> = tasks
+        // process fututres and collect tasks
+        let embedding_tasks: Vec<EmbeddingTask> = iter(path_futures)
+            .buffered(CHUNK_SIZE)
+            .filter_map(|d| async { d })
+            .collect::<Vec<_>>()
+            .await;
+
+        if !embedding_tasks.is_empty() {
+            // Prepare descriptions for generating embeddings
+            let descriptions: Vec<String> = embedding_tasks
                 .iter()
-                .map(|result| result.description.clone())
+                .map(|task| task.description.clone())
                 .collect();
+
+            // Fetch embeddings asynchronously
             let embeddings = self.chat.get_embeddings(descriptions).await?;
 
-            for (result, embedding) in tasks.iter().zip(embeddings.iter()) {
-                let message = result
+            // Iterate over tasks and corresponding embeddings
+            for (task, embedding) in embedding_tasks.iter().zip(embeddings.iter()) {
+                // Extract folder name safely and convert it to a string
+                let folder_name = task
                     .path
                     .parent()
-                    .unwrap()
-                    .file_name()
-                    .unwrap()
-                    .to_str()
-                    .unwrap();
+                    .and_then(|parent| parent.file_name())
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("Unknown");
 
+                // Construct payload for upsertion
                 let mut payload = HashMap::new();
-                payload.insert("path".to_string(), result.path.display().to_string());
-                payload.insert("description".to_string(), result.description.clone());
-                payload.insert("folder".to_string(), message.into());
+                payload.insert("path".to_string(), task.path.display().to_string());
+                payload.insert("description".to_string(), task.description.clone());
+                payload.insert("folder".to_string(), folder_name.to_string());
 
                 let input = VectorInput {
-                    id: result.id,
+                    id: task.id,
                     embedding: embedding.clone(),
                     payload,
                 };
 
-                info!("Processing {}: {:?}", result.path.display(), &input);
+                info!("Processing {}: {:?}", task.path.display(), &input);
 
+                // Upsert the data into the vector database
                 self.vector_db.upsert_points(COLLECTION_NAME, input).await?;
             }
 
