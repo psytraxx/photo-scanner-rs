@@ -11,11 +11,13 @@ use std::{
     hash::{DefaultHasher, Hash, Hasher},
     path::PathBuf,
     sync::Arc,
+    time::Duration,
 };
+use tokio::time::sleep;
 use tracing::{error, info, warn};
 
 // Maximum number of chunks for embeddings API
-const CHUNK_SIZE: usize = 10;
+const CHUNK_SIZE: usize = 25;
 const COLLECTION_NAME: &str = "photos";
 const DROP_COLLECTION: bool = false;
 
@@ -67,6 +69,7 @@ impl EmbeddingsService {
     }
 
     async fn process_paths(&self, paths: Vec<PathBuf>) -> Result<()> {
+        #[derive(Debug)]
         struct EmbeddingTask {
             id: u64,
             description: String,
@@ -124,6 +127,9 @@ impl EmbeddingsService {
         if embedding_tasks.is_empty() {
             return Ok(());
         }
+
+        // to avoid rate limiting, sleep for a while
+        sleep(Duration::from_millis(100)).await;
 
         let descriptions: Vec<_> = embedding_tasks
             .iter()
