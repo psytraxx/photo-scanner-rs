@@ -24,8 +24,9 @@ impl XMPToolkitMetadata {
 impl XMPMetadata for XMPToolkitMetadata {
     fn get_description(&self, path: &Path) -> Result<Option<String>> {
         let mut xmp_file = open(path)?;
-        let xmp = xmp_file.xmp().context("No XMP metadata found")?;
-        xmp_file.close();
+        let xmp = xmp_file
+            .xmp()
+            .context("XMPMetadata not found get_description")?;
 
         match xmp.localized_text(DC, XMP_DESCRIPTION, None, "x-default") {
             Some(description) => {
@@ -42,8 +43,9 @@ impl XMPMetadata for XMPToolkitMetadata {
 
     fn get_geolocation(&self, path: &Path) -> Result<Option<String>> {
         let mut xmp_file = open(path)?;
-        let xmp = xmp_file.xmp().context("No XMP metadata found")?;
-        xmp_file.close();
+        let xmp = xmp_file
+            .xmp()
+            .context("XMPMetadata not found get_geolocation")?;
 
         let longitude = xmp.property(EXIF, "GPSLongitude").map(|val| val.value);
         let latitude = xmp.property(EXIF, "GPSLatitude").map(|val| val.value);
@@ -84,26 +86,21 @@ impl XMPMetadata for XMPToolkitMetadata {
 
     fn get_persons(&self, path: &Path) -> Result<Vec<String>> {
         let mut xmp_file = open(path)?;
-        let result = match xmp_file.xmp() {
-            Some(xmp) => {
-                let names: Vec<String> = xmp
-                    .iter(
-                        IterOptions::default()
-                            .schema_ns("http://www.metadataworkinggroup.com/schemas/regions/"),
-                    )
-                    .filter(|x| x.name.ends_with("mwg-rs:Name"))
-                    .map(|x| x.value.value)
-                    .collect();
-                debug!("Names in XMP data: {:?}", names);
-                names
-            }
-            None => {
-                debug!("No XMP metadata found.");
-                Vec::new()
-            }
-        };
-        xmp_file.close();
-        Ok(result)
+        let xmp = xmp_file
+            .xmp()
+            .context("XMPMetadata not found get_persons")?;
+
+        let names: Vec<String> = xmp
+            .iter(
+                IterOptions::default()
+                    .schema_ns("http://www.metadataworkinggroup.com/schemas/regions/"),
+            )
+            .filter(|x| x.name.ends_with("mwg-rs:Name"))
+            .map(|x| x.value.value)
+            .collect();
+        debug!("Names in XMP data: {:?}", names);
+
+        Ok(names)
     }
 }
 fn open(path: &Path) -> Result<XmpFile> {
