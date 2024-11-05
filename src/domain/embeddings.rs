@@ -167,7 +167,7 @@ impl EmbeddingsService {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use crate::{
         domain::{
             embeddings::EmbeddingsService,
@@ -215,7 +215,7 @@ mod tests {
         Ok(())
     }
 
-    struct ChatMock;
+    pub struct ChatMock;
 
     #[async_trait]
     impl Chat for ChatMock {
@@ -225,7 +225,7 @@ mod tests {
             _persons: &[String],
             _folder_name: &Option<String>,
         ) -> Result<String> {
-            unimplemented!()
+            Ok("description".to_string())
         }
 
         async fn get_embeddings(&self, _texts: Vec<String>) -> Result<Vec<Vec<f32>>> {

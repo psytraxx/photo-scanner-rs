@@ -51,7 +51,7 @@ impl VectorDB for QdrantClient {
     }
 
     async fn upsert_points(&self, collection_name: &str, inputs: &[VectorInput]) -> Result<bool> {
-        let points: Result<Vec<_>, Error> = inputs
+        let points: Result<Vec<_>> = inputs
             .iter()
             .map(|i| {
                 let payload = json!(i.payload);
