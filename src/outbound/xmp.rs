@@ -64,21 +64,16 @@ impl XMPMetadata for XMPToolkitMetadata {
 
     fn set_description(&self, text: &str, path: &Path) -> Result<()> {
         let mut xmp_file = open(path)?;
-
-        let mut xmp = match xmp_file.xmp() {
-            Some(existing_xmp) => {
-                debug!("XMP metadata exists. Parsing it...");
-                existing_xmp
-            }
-            None => {
-                debug!("No XMP metadata found. Creating a new one.");
-                XmpMeta::new()?
-            }
-        };
+        let mut xmp = xmp_file
+            .xmp()
+            .context("XMPMetadata not found get_persons")
+            .or(XmpMeta::new())?;
 
         xmp.set_localized_text(DC, XMP_DESCRIPTION, None, "x-default", text)?;
 
         xmp_file.put_xmp(&xmp)?;
+
+        // this writes the XMP data to the file
         xmp_file.close();
 
         Ok(())
@@ -130,8 +125,8 @@ fn open(path: &Path) -> Result<XmpFile> {
 
 /// Convert DMS (degrees, minutes, seconds) to decimal degrees
 fn dms_to_dd(dms: &str) -> Option<f64> {
-    // Remove the directional character (N/S) and split by comma
-    let (coords, direction) = dms.split_at(dms.len() - 1);
+    // Remove the directional character (N/S/E/W) and split by comma
+    let (coords, direction) = dms.split_at(dms.len().saturating_sub(1));
     let parts: Vec<&str> = coords.split(',').collect();
 
     if parts.len() != 2 {
@@ -189,6 +184,30 @@ mod tests {
 
         // Copy an existing JPEG file to the temporary directory
         let source_file = PathBuf::from("testdata/sizilien/4L2A3805.jpg");
+        copy(&source_file, &destination_file_path)?;
+
+        let tool = XMPToolkitMetadata::new();
+
+        let test_description = "This is a test description";
+        tool.set_description(test_description, &destination_file_path)?;
+
+        // Check that the description has been written correctly
+        let description = tool.get_description(&destination_file_path)?;
+        assert_eq!(description, Some(test_description.to_string()));
+
+        // Clean up by deleting the temporary file
+        remove_file(&destination_file_path)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_set_and_get_description_no_existing_xmp() -> Result<()> {
+        let temp_dir = tempfile::tempdir()?;
+        let destination_file_path = temp_dir.path().join("4L2A3805.jpg");
+
+        // Copy an existing JPEG file to the temporary directory
+        let source_file = PathBuf::from("testdata/sizilien/4L2A3805-no-xmp.jpg");
         copy(&source_file, &destination_file_path)?;
 
         let tool = XMPToolkitMetadata::new();
