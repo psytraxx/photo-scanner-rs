@@ -50,21 +50,25 @@ impl VectorDB for QdrantClient {
             .map_err(Error::from)
     }
 
-    async fn upsert_points(&self, collection_name: &str, input: VectorInput) -> Result<bool> {
-        let payload = json!(input.payload);
-
-        match Payload::try_from(payload) {
-            Ok(payload) => {
-                let point = PointStruct::new(input.id, input.embedding, payload);
-                let request = UpsertPointsBuilder::new(collection_name, vec![point]).build();
-                self.client
-                    .upsert_points(request)
-                    .await
-                    .map(|r| r.result.is_some())
+    async fn upsert_points(&self, collection_name: &str, inputs: &[VectorInput]) -> Result<bool> {
+        let points: Result<Vec<_>, Error> = inputs
+            .iter()
+            .map(|i| {
+                let payload = json!(i.payload);
+                Payload::try_from(payload)
+                    .map(|payload| PointStruct::new(i.id, i.embedding.clone(), payload))
                     .map_err(Error::from)
-            }
-            Err(e) => Err(Error::from(e)),
-        }
+            })
+            .collect();
+
+        let points = points?;
+
+        let request = UpsertPointsBuilder::new(collection_name, points).build();
+        self.client
+            .upsert_points(request)
+            .await
+            .map(|r| r.result.is_some())
+            .map_err(Error::from)
     }
 
     async fn search_points(
