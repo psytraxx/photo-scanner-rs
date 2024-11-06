@@ -173,26 +173,20 @@ impl EmbeddingsService {
 }
 
 #[cfg(test)]
-pub(super) mod tests {
+pub mod tests {
     use crate::{
-        domain::{
-            embeddings::EmbeddingsService,
-            models::{VectorInput, VectorOutput},
-            ports::{Chat, VectorDB},
+        domain::{embeddings::EmbeddingsService, ports::VectorDB},
+        outbound::{
+            test_mocks::tests::{ChatMock, VectorDBMock},
+            xmp::XMPToolkitMetadata,
         },
-        outbound::xmp::XMPToolkitMetadata,
     };
     use anyhow::Result;
-    use async_trait::async_trait;
-    use rand::Rng;
-    use std::collections::HashMap;
-    use std::sync::Mutex;
     use std::{
         fs::{copy, remove_file},
         path::PathBuf,
         sync::Arc,
     };
-    use tracing::debug;
     #[tokio::test]
     async fn test_generate_embeddings() -> Result<()> {
         let temp_dir = tempfile::tempdir()?;
@@ -205,8 +199,9 @@ pub(super) mod tests {
         // Initialize dependencies
         let chat = Arc::new(ChatMock);
         let xmp_metadata = Arc::new(XMPToolkitMetadata::new());
-        let vector_db = Arc::new(VectorDBMock::new());
 
+        let vector_db = Arc::new(VectorDBMock::new());
+        vector_db.create_collection("photos").await?;
         // Create the DescriptionService instance
         let service = EmbeddingsService::new(chat, xmp_metadata.clone(), vector_db);
 
@@ -219,121 +214,5 @@ pub(super) mod tests {
         remove_file(&destination_file_path)?;
 
         Ok(())
-    }
-
-    pub struct ChatMock;
-
-    #[async_trait]
-    impl Chat for ChatMock {
-        async fn get_image_description(
-            &self,
-            _image_base64: &str,
-            _persons: &[String],
-            _folder_name: &Option<String>,
-        ) -> Result<String> {
-            Ok("description".to_string())
-        }
-
-        async fn get_embeddings(&self, _texts: Vec<String>) -> Result<Vec<Vec<f32>>> {
-            let mut rng = rand::thread_rng();
-            let embedding: Vec<f32> = (0..1536).map(|_| rng.gen()).collect();
-            Ok(vec![embedding])
-        }
-
-        async fn process_search_result(
-            &self,
-            _question: &str,
-            _options: &[String],
-        ) -> Result<String> {
-            unimplemented!()
-        }
-    }
-
-    struct VectorDBMock {
-        store_embeddings: Mutex<HashMap<String, Vec<VectorInput>>>,
-    }
-
-    impl VectorDBMock {
-        pub fn new() -> Self {
-            Self {
-                store_embeddings: Mutex::new(HashMap::new()),
-            }
-        }
-    }
-
-    #[async_trait]
-    impl VectorDB for VectorDBMock {
-        async fn create_collection(&self, _collection: &str) -> Result<bool> {
-            unimplemented!()
-        }
-
-        async fn delete_collection(&self, _text: &str) -> Result<bool> {
-            unimplemented!()
-        }
-
-        async fn find_by_id(
-            &self,
-            _collection_name: &str,
-            _id: &u64,
-        ) -> Result<Option<VectorOutput>> {
-            return Ok(None);
-        }
-
-        async fn upsert_points(
-            &self,
-            collection_name: &str,
-            inputs: &[VectorInput],
-        ) -> Result<bool> {
-            let mut entries = self.store_embeddings.lock().unwrap();
-            if !entries.contains_key(collection_name) {
-                entries.insert(collection_name.to_string(), Vec::new());
-            }
-
-            let collection = entries.get_mut(collection_name).unwrap();
-
-            inputs.iter().for_each(|input| {
-                // Find and remove an existing entry with the same ID
-                if collection.iter().any(|entry| entry.id == input.id) {
-                    collection.retain(|entry| entry.id != input.id);
-                }
-
-                // Insert a new entry
-                collection.push(VectorInput {
-                    id: input.id,
-                    embedding: input.embedding.clone(),
-                    payload: input.payload.clone(),
-                });
-            });
-            Ok(true)
-        }
-
-        async fn search_points(
-            &self,
-            collection_name: &str,
-            _input_vectors: &[f32],
-            _payload_required: HashMap<String, String>,
-        ) -> Result<Vec<VectorOutput>> {
-            let entries = self.store_embeddings.lock().unwrap();
-            match entries.get(collection_name) {
-                Some(entries) => {
-                    debug!(
-                        "Found {:?} entries in collection {}",
-                        entries, collection_name
-                    );
-
-                    entries
-                        .iter()
-                        .map(|entry| {
-                            Ok(VectorOutput {
-                                id: entry.id,
-                                score: None,
-                                payload: entry.payload.clone(),
-                            })
-                        })
-                        .collect()
-                }
-                None => return Ok(Vec::new()),
-            }
-        }
     }
 }

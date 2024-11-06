@@ -1,5 +1,6 @@
 pub mod exif;
 pub mod image_provider;
 pub mod openai;
-pub mod xmp;
 pub mod qdrant;
+pub mod test_mocks;
+pub mod xmp;

@@ -47,17 +47,25 @@ impl XMPMetadata for XMPToolkitMetadata {
             .xmp()
             .context("XMPMetadata not found get_geolocation")?;
 
-        let longitude = xmp.property(EXIF, "GPSLongitude").map(|val| val.value);
-        let latitude = xmp.property(EXIF, "GPSLatitude").map(|val| val.value);
+        // Fetch the GPS coordinates
+        let gps_longitude = xmp.property(EXIF, "GPSLongitude").map(|val| val.value);
+        let gps_latitude = xmp.property(EXIF, "GPSLatitude").map(|val| val.value);
 
-        if let (Some(latitude), Some(longitude)) = (latitude, longitude) {
+        // If both coordinates are present
+        if let (Some(latitude), Some(longitude)) = (gps_latitude, gps_longitude) {
+            // Convert them to decimal degrees
             if let (Some(latitude), Some(longitude)) = (dms_to_dd(&latitude), dms_to_dd(&longitude))
             {
+                // Format the coordinates and return them
                 Ok(Some(format!("{},{}", latitude, longitude)))
             } else {
+                // If the conversion fails, return None
+                debug!("Failed to convert GPS coordinates to decimal degrees.");
                 Ok(None)
             }
         } else {
+            // If either coordinate is missing, return None
+            debug!("Missing GPS coordinates in XMP data.");
             Ok(None)
         }
     }

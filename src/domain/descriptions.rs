@@ -158,10 +158,10 @@ impl DescriptionService {
 #[cfg(test)]
 mod tests {
     use crate::{
-        domain::{
-            descriptions::DescriptionService, embeddings::tests::ChatMock, ports::XMPMetadata,
+        domain::{descriptions::DescriptionService, ports::XMPMetadata},
+        outbound::{
+            image_provider::ImageCrateEncoder, test_mocks::tests::ChatMock, xmp::XMPToolkitMetadata,
         },
-        outbound::{image_provider::ImageCrateEncoder, xmp::XMPToolkitMetadata},
     };
     use anyhow::Result;
     use std::{

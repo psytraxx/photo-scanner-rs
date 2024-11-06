@@ -1,5 +1,5 @@
 use crate::domain::{
-    models::{VectorInput, VectorOutput},
+    models::{VectorInput, VectorOutput, VectorOutputList},
     ports::VectorDB,
 };
 use anyhow::{Error, Result};
@@ -76,7 +76,7 @@ impl VectorDB for QdrantClient {
         collection_name: &str,
         input_vectors: &[f32],
         payload_required: HashMap<String, String>,
-    ) -> Result<Vec<VectorOutput>> {
+    ) -> Result<VectorOutputList> {
         let filter: Vec<Condition> = payload_required
             .iter()
             .map(|(key, value)| Condition::matches(key, value.to_string()))

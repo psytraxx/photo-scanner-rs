@@ -1,10 +1,11 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
+use photo_scanner_rust::domain::models::VectorOutputListUtils;
 use photo_scanner_rust::domain::ports::{Chat, VectorDB};
 use photo_scanner_rust::outbound::openai::OpenAI;
 use photo_scanner_rust::outbound::qdrant::QdrantClient;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{debug, info, warn};
 
 const QDRANT_GRPC: &str = "http://dot.dynamicflash.de:6334";
 
@@ -24,22 +25,35 @@ async fn main() -> Result<()> {
 
     let vector_db = Arc::new(QdrantClient::new(QDRANT_GRPC, 1024)?);
 
-    // what is our favorite beach holiday destination in europe
-    // which festivals has annina visited in in the last years
-    let question = "which cities did we visit in japan";
-
+    // Get the folder path from command line arguments.
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() != 2 {
+        return Err(anyhow!("Please provide question"));
+    }
+    let question = &args[1];
     let embeddings = chat.get_embeddings(vec![question.to_string()]).await?;
 
-    let result = vector_db
+    let mut result = vector_db
         .search_points("photos", embeddings[0].as_slice(), HashMap::new())
         .await?;
+
+    // Sort the results by score.
+    result.sort_by_score();
+
+    if result.is_empty() {
+        warn!(
+            "{:?}",
+            "Please check your search input - no matching documents found"
+        );
+        return Ok(());
+    }
 
     let result: Vec<String> = result
         .iter()
         .map(|r| r.payload.get("description").cloned().unwrap_or_default())
         .collect();
 
-    info!("{:?}", result);
+    debug!("{:?}", result);
 
     let result = chat.process_search_result(question, &result).await?;
 
