@@ -1,11 +1,11 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, FixedOffset};
 use std::path::Path;
 use tracing::debug;
 use xmp_toolkit::{
-    xmp_ns::{DC, EXIF, XMP},
-    IterOptions, OpenFileOptions, XmpFile, XmpMeta,
+    xmp_ns::{DC, EXIF, PHOTOSHOP, XMP},
+    IterOptions, OpenFileOptions, XmpDateTime, XmpFile, XmpMeta, XmpTime, XmpTimeZone, XmpValue,
 };
 
 use crate::domain::ports::XMPMetadata;
@@ -71,7 +71,7 @@ impl XMPMetadata for XMPToolkitMetadata {
         }
     }
 
-    fn set_description(&self, text: &str, path: &Path) -> Result<()> {
+    fn set_description(&self, path: &Path, text: &str) -> Result<()> {
         let mut xmp_file = open(path)?;
         let mut xmp = xmp_file
             .xmp()
@@ -107,28 +107,62 @@ impl XMPMetadata for XMPToolkitMetadata {
         Ok(names)
     }
 
-    fn get_created(&self, path: &Path) -> Result<Option<DateTime<Utc>>> {
+    fn get_created(&self, path: &Path) -> Result<DateTime<FixedOffset>> {
         let mut xmp_file = open(path)?;
         let xmp = xmp_file
             .xmp()
             .context("XMPMetadata not found get_persons")?;
 
-/*         xmp.iter(IterOptions::default()).for_each(|x| {
-            println!("XMP data: {:?}", x);
-        }); */
+        let created = xmp
+            .property_date(XMP, "CreateDate")
+            .or_else(|| xmp.property_date(EXIF, "DateTimeOriginal"))
+            .or_else(|| xmp.property_date(PHOTOSHOP, "DateCreated"))
+            .ok_or(anyhow!(
+                "Neither xmp:CreateDate, exif:DateTimeOriginal nor photoshop:DateCreated property found"
+            ))?;
 
-        match xmp.property(XMP, "CreateDate") {
-            Some(created) => {
-                let created = created.value;
-                let created = parse_date_time(&created);
-                debug!("Created in XMP data: {:?}", created);
-                Ok(created)
+        let mut created = created.value;
+
+        debug!("Created in XMP data: {:?}", created);
+
+        // Set timezone to UTC+1 (Zurich) if not present
+        if let Some(ref mut time) = created.time {
+            if time.time_zone.is_none() {
+                time.time_zone = Some(XmpTimeZone { hour: 1, minute: 0 }); // assume UTC
             }
-            None => {
-                debug!("No created in XMP data.");
-                Ok(None)
-            }
+        } else {
+            created.time = Some(XmpTime {
+                hour: 0,
+                minute: 0,
+                second: 0,
+                nanosecond: 0,
+                time_zone: Some(XmpTimeZone { hour: 1, minute: 0 }), // assume UTC
+            });
         }
+
+        let created: DateTime<FixedOffset> = created.try_into()?;
+        Ok(created)
+    }
+
+    fn set_created(&self, path: &Path, created: &DateTime<FixedOffset>) -> Result<()> {
+        let mut xmp_file = open(path)?;
+        let mut xmp = xmp_file
+            .xmp()
+            .context("XMPMetadata not found set_created")
+            .or(XmpMeta::new())?;
+
+        let created: XmpDateTime = created.into();
+        let created = XmpValue::new(created);
+        xmp.set_property_date(XMP, "CreateDate", &created)?;
+        xmp.set_property_date(PHOTOSHOP, "DateCreated", &created)?;
+        xmp.set_property_date(EXIF, "DateTimeOriginal", &created)?;
+
+        xmp_file.put_xmp(&xmp)?;
+
+        // this writes the XMP data to the file
+        xmp_file.close();
+
+        Ok(())
     }
 }
 fn open(path: &Path) -> Result<XmpFile> {
@@ -180,30 +214,9 @@ fn dms_to_dd(dms: &str) -> Option<f64> {
     }
 }
 
-fn parse_date_time(date_str: &str) -> Option<DateTime<Utc>> {
-    let formats = [
-        "%Y",                          // YYYY
-        "%Y-%m",                       // YYYY-MM
-        "%Y-%m-%d",                    // YYYY-MM-DD
-        "%Y-%m-%dT%H:%M%:z",           // YYYY-MM-DDThh:mmTZD
-        "%Y-%m-%dT%H:%M:%S%:z",        // YYYY-MM-DDThh:mm:ssTZD
-        "%Y-%m-%dT%H:%M:%S%.f%:z",     // YYYY-MM-DDThh:mm:ss.sTZD
-        "%Y-%m-%dT%H:%M:%S%.f"
-    ];
-
-    for format in &formats {
-        if let Ok(date_time) = NaiveDateTime::parse_from_str(date_str, format) {
-            let date_time = date_time.and_local_timezone(Utc).unwrap();
-            return Some(date_time);
-        }
-    }
-
-    None
-}
-
 #[cfg(test)]
 mod tests {
-    use chrono::{NaiveDate, NaiveDateTime, TimeZone};
+    use chrono::{NaiveDate, TimeZone, Utc};
     use tracing::Level;
 
     use super::*;
@@ -232,17 +245,29 @@ mod tests {
     }
 
     #[test]
-    fn test_get_created() -> Result<()> {
-        let path = Path::new("testdata/sizilien/4L2A3805.jpg");
+    fn test_set_and_get_created() -> Result<()> {
+        let temp_dir = tempfile::tempdir()?;
+        let destination_file_path = temp_dir.path().join("4L2A3805.jpg");
+
+        // Copy an existing JPEG file to the temporary directory
+        let source_file = PathBuf::from("testdata/sizilien/4L2A3805.jpg");
+        copy(&source_file, &destination_file_path)?;
 
         let tool = XMPToolkitMetadata::new();
 
+        let created_in = NaiveDate::from_ymd_opt(1999, 1, 1).unwrap();
+        let created_in = created_in.and_hms_opt(10, 0, 0).unwrap();
+        let created_in = Utc
+            .from_utc_datetime(&created_in)
+            .with_timezone(&FixedOffset::east_opt(3600).unwrap());
+        tool.set_created(&destination_file_path, &created_in)?;
+
         // Check that the description has been written correctly
-        let created = tool.get_created(path)?;
-        assert!(created.is_some());
-        let compare = NaiveDate::from_ymd_opt(2023, 10, 9).unwrap();
-        let compare = compare.and_hms_opt(10, 33, 31).unwrap();
-        assert_eq!(Utc.from_utc_datetime(&compare), created.unwrap());
+        let created_out = tool.get_created(&destination_file_path)?;
+        assert_eq!(created_in, created_out);
+
+        // Clean up by deleting the temporary file
+        remove_file(&destination_file_path)?;
 
         Ok(())
     }
@@ -259,7 +284,7 @@ mod tests {
         let tool = XMPToolkitMetadata::new();
 
         let test_description = "This is a test description";
-        tool.set_description(test_description, &destination_file_path)?;
+        tool.set_description(&destination_file_path, test_description)?;
 
         // Check that the description has been written correctly
         let description = tool.get_description(&destination_file_path)?;
@@ -283,7 +308,7 @@ mod tests {
         let tool = XMPToolkitMetadata::new();
 
         let test_description = "This is a test description";
-        tool.set_description(test_description, &destination_file_path)?;
+        tool.set_description(&destination_file_path, test_description)?;
 
         // Check that the description has been written correctly
         let description = tool.get_description(&destination_file_path)?;

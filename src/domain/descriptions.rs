@@ -102,7 +102,7 @@ impl DescriptionService {
                         error!("Error getting embedding for {}: {}", &path.display(), e);
                     } */
 
-                    if let Err(e) = self.xmp_metadata.set_description(&description, &path) {
+                    if let Err(e) = self.xmp_metadata.set_description(&path, &description) {
                         error!(
                             "Error storing XMP description for {}: {}",
                             path.display(),
