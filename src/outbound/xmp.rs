@@ -1,9 +1,10 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use std::path::Path;
 use tracing::debug;
 use xmp_toolkit::{
-    xmp_ns::{DC, EXIF},
+    xmp_ns::{DC, EXIF, XMP},
     IterOptions, OpenFileOptions, XmpFile, XmpMeta,
 };
 
@@ -105,6 +106,30 @@ impl XMPMetadata for XMPToolkitMetadata {
 
         Ok(names)
     }
+
+    fn get_created(&self, path: &Path) -> Result<Option<DateTime<Utc>>> {
+        let mut xmp_file = open(path)?;
+        let xmp = xmp_file
+            .xmp()
+            .context("XMPMetadata not found get_persons")?;
+
+/*         xmp.iter(IterOptions::default()).for_each(|x| {
+            println!("XMP data: {:?}", x);
+        }); */
+
+        match xmp.property(XMP, "CreateDate") {
+            Some(created) => {
+                let created = created.value;
+                let created = parse_date_time(&created);
+                debug!("Created in XMP data: {:?}", created);
+                Ok(created)
+            }
+            None => {
+                debug!("No created in XMP data.");
+                Ok(None)
+            }
+        }
+    }
 }
 fn open(path: &Path) -> Result<XmpFile> {
     // Step 1: Open the JPEG file with XmpFile for reading and writing XMP metadata
@@ -155,8 +180,30 @@ fn dms_to_dd(dms: &str) -> Option<f64> {
     }
 }
 
+fn parse_date_time(date_str: &str) -> Option<DateTime<Utc>> {
+    let formats = [
+        "%Y",                          // YYYY
+        "%Y-%m",                       // YYYY-MM
+        "%Y-%m-%d",                    // YYYY-MM-DD
+        "%Y-%m-%dT%H:%M%:z",           // YYYY-MM-DDThh:mmTZD
+        "%Y-%m-%dT%H:%M:%S%:z",        // YYYY-MM-DDThh:mm:ssTZD
+        "%Y-%m-%dT%H:%M:%S%.f%:z",     // YYYY-MM-DDThh:mm:ss.sTZD
+        "%Y-%m-%dT%H:%M:%S%.f"
+    ];
+
+    for format in &formats {
+        if let Ok(date_time) = NaiveDateTime::parse_from_str(date_str, format) {
+            let date_time = date_time.and_local_timezone(Utc).unwrap();
+            return Some(date_time);
+        }
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
+    use chrono::{NaiveDate, NaiveDateTime, TimeZone};
     use tracing::Level;
 
     use super::*;
@@ -178,9 +225,24 @@ mod tests {
 
         let tool = XMPToolkitMetadata::new();
 
-        // Check that the description has been written correctly
         let faces = tool.get_persons(path)?;
         assert_eq!(faces.len(), 1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_created() -> Result<()> {
+        let path = Path::new("testdata/sizilien/4L2A3805.jpg");
+
+        let tool = XMPToolkitMetadata::new();
+
+        // Check that the description has been written correctly
+        let created = tool.get_created(path)?;
+        assert!(created.is_some());
+        let compare = NaiveDate::from_ymd_opt(2023, 10, 9).unwrap();
+        let compare = compare.and_hms_opt(10, 33, 31).unwrap();
+        assert_eq!(Utc.from_utc_datetime(&compare), created.unwrap());
 
         Ok(())
     }

@@ -1,6 +1,7 @@
 use super::models::{VectorInput, VectorOutput, VectorOutputList};
 use anyhow::Result;
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use std::{collections::HashMap, path::Path, vec::Vec};
 
 #[async_trait]
@@ -107,6 +108,8 @@ pub trait XMPMetadata: 'static + Send + Sync {
     ///
     /// * `Result<Vec<String>>` - A Result containing a vector of strings that represent the persons mentioned in the image metadata, or an error.
     fn get_persons(&self, path: &Path) -> Result<Vec<String>>;
+
+    fn get_created(&self, path: &Path) -> Result<Option<DateTime<Utc>>>;
 }
 
 /// A trait for working with vector databases.
