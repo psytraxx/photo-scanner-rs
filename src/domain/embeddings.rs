@@ -193,7 +193,7 @@ pub mod tests {
         let destination_file_path = temp_dir.path().join("4L2A3805.jpg");
 
         // Copy an existing JPEG file to the temporary directory
-        let source_file = PathBuf::from("testdata/picasa/PXL_20230408_060152625.jpg");
+        let source_file = PathBuf::from("testdata/example-full.jpg");
         copy(&source_file, &destination_file_path)?;
 
         // Initialize dependencies

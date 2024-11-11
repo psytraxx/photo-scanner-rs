@@ -4,22 +4,21 @@ version = "0.2.0"
 edition = "2021"
 
 [dependencies]
-anyhow = "1.0.91" # Error handling library
+anyhow = "1.0.93" # Error handling library
 async-openai = "0.25.0" # Asynchronous OpenAI API client
 base64 = "0.22.1" # Base64 encoding and decoding library
 tracing = "0.1.40" # Event tracing for your application
 tracing-subscriber = { version = "0.3.18", features = [
     "env-filter",
 ] } # Trace events to output streams
-tokio = { version = "1.40.0", features = [
+tokio = { version = "1.40.1", features = [
     "full",
 ] } # Asynchronous runtime for Rust
 async-trait = "0.1.83" # Trait for async functions in Rust
 xmp_toolkit = { version = "1.9.1", features = [
     "chrono",
 ] } # Library for parsing and manipulating XMP metadata
-little_exif = "0.6.1" # Library for reading EXIF metadata from images
-image = { version = "0.25.4", features = ["rayon"] } # Image processing library
+image = { version = "0.25.5", features = ["rayon"] } # Image processing library
 futures = "0.3.31" # Utilities for working with asynchronous operations
 indicatif = "0.17.8" # Progress bar library
 tracing-appender = "0.2.3" # Trace events to output streams

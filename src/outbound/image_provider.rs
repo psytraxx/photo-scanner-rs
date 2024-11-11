@@ -1,7 +1,6 @@
 use anyhow::Result;
 use image::open;
 use std::{io::Cursor, path::Path};
-use tracing::debug;
 
 use base64::{prelude::BASE64_STANDARD, Engine};
 
@@ -31,7 +30,6 @@ impl ImageEncoder for ImageCrateEncoder {
         resized_img.write_to(&mut cursor, image::ImageFormat::Jpeg)?;
 
         let image_base64 = BASE64_STANDARD.encode(buffer);
-        debug!("{}", image_base64);
         Ok(image_base64)
     }
 }
