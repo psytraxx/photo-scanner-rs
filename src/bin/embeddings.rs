@@ -37,7 +37,7 @@ async fn main() -> Result<()> {
     }
     let root_path = PathBuf::from(&args[1]);
 
-    let service = EmbeddingsService::new(chat, xmp_toolkit, vector_db);
+    let service = EmbeddingsService::new(chat, xmp_toolkit, vector_db, false);
 
     service.generate(&root_path).await
 }

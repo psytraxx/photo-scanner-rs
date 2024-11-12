@@ -34,7 +34,11 @@ impl VectorOutputListUtils for VectorOutputList {
         // Sort the VectorOutputList in-place by score in descending order
         // The `sort_by` method sorts the elements in-place based on the result of a comparison function
         // The `partial_cmp` method compares two Option<f32> values in a way that treats None as less than Some
-        self.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+        self.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .expect("Ensure you sort a vectorlist which has scores set")
+        });
     }
     // A method to filter out results with scores below a given threshold
     fn limit_results(&mut self, score: f32) {

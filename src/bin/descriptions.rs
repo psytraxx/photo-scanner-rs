@@ -38,5 +38,7 @@ async fn main() -> Result<()> {
 
     let service = DescriptionService::new(image_provider, chat, xmp_toolkit);
 
-    service.generate(&root_path).await
+    service.generate(&root_path).await?;
+
+    Ok(())
 }

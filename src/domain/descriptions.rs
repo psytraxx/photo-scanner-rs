@@ -35,7 +35,7 @@ impl DescriptionService {
         }
     }
 
-    pub async fn generate(&self, root_path: &PathBuf) -> Result<()> {
+    pub async fn generate(&self, root_path: &PathBuf) -> Result<u64> {
         // Traverse the files and process them with limited concurrency.
         let files_list = list_jpeg_files(root_path)?;
 
@@ -50,12 +50,18 @@ impl DescriptionService {
         iter(files_list)
             .for_each_concurrent(MAX_CONCURRENT_TASKS, |path| {
                 let progress_bar = Arc::clone(&progress_bar);
-                let message = path.parent().unwrap().display().to_string();
+                let message = path
+                    .parent()
+                    .expect("Failed to get parent directory ")
+                    .display()
+                    .to_string();
                 async move {
                     progress_bar.inc(1);
                     progress_bar.set_message(message);
+
                     // Skip files that do not need processing.
-                    if self.can_be_skipped(&path) {
+                    let description = self.xmp_metadata.get_description(&path).unwrap_or_default();
+                    if can_be_skipped(description, &path) {
                         return;
                     }
 
@@ -125,40 +131,35 @@ impl DescriptionService {
 
         progress_bar.finish_with_message("All items have been processed.");
 
-        Ok(())
+        Ok(progress_bar.position())
     }
+}
 
-    /// Function to check if the file can be skipped.
-    fn can_be_skipped(&self, path: &Path) -> bool {
-        // Skip files that already have an XMP description.
-        match self.xmp_metadata.get_description(path) {
-            Ok(Some(description)) => {
-                let re = Regex::new(r"(?i)\b(image|photo|picture|photograph)\b").unwrap();
-                if re.is_match(&description) {
-                    info!("Reprocessed: [{}] \"{}\"", path.display(), description,);
-                    false
-                } else {
-                    info!("Exists: [{}] \"{}\"", path.display(), description,);
-                    true
-                }
-            }
-            Ok(None) => false, // No description present, proceed with processing.
-            Err(e) => {
-                error!(
-                    "Error getting XMP description for {}: {}",
-                    path.display(),
-                    e
-                );
-                true // Skip processing if there's an error retrieving the description.
+/// Function to check if the file can be skipped.
+fn can_be_skipped(description: Option<String>, path: &Path) -> bool {
+    // Skip files that already have an XMP description.
+    match description {
+        Some(description) => {
+            let re = Regex::new(r"(?i)\b(image|photo|picture|photograph)\b").unwrap();
+            if re.is_match(&description) {
+                info!("Reprocessed: [{}] \"{}\"", path.display(), description,);
+                false
+            } else {
+                info!("Exists: [{}] \"{}\"", path.display(), description,);
+                true
             }
         }
+        None => false, //no description - no skip!
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::{
-        domain::{descriptions::DescriptionService, ports::XMPMetadata},
+        domain::{
+            descriptions::{can_be_skipped, DescriptionService},
+            ports::XMPMetadata,
+        },
         outbound::{
             image_provider::ImageCrateEncoder, test_mocks::tests::ChatMock, xmp::XMPToolkitMetadata,
         },
@@ -166,17 +167,27 @@ mod tests {
     use anyhow::Result;
     use std::{
         fs::{copy, remove_file},
-        path::PathBuf,
+        path::{Path, PathBuf},
         sync::Arc,
     };
     #[tokio::test]
     async fn test_generate_descriptions() -> Result<()> {
         let temp_dir = tempfile::tempdir()?;
-        let destination_file_path = temp_dir.path().join("4L2A3805.jpg");
 
+        let destination_file_path1 = temp_dir.path().join("example-full.jpg");
         // Copy an existing JPEG file to the temporary directory
         let source_file = PathBuf::from("testdata/example-full.jpg");
-        copy(&source_file, &destination_file_path)?;
+        copy(&source_file, &destination_file_path1)?;
+
+        let destination_file_path2 = temp_dir.path().join("example-persons.jpg");
+        // Copy an existing JPEG file to the temporary directory
+        let source_file = PathBuf::from("testdata/example-persons.jpg");
+        copy(&source_file, &destination_file_path2)?;
+
+        let destination_file_path3 = temp_dir.path().join("example-existing-description-xmp.jpg");
+        // Copy an existing JPEG file to the temporary directory
+        let source_file = PathBuf::from("testdata/example-existing-description-xmp.jpg");
+        copy(&source_file, &destination_file_path3)?;
 
         // Initialize dependencies
         let image_provider = Arc::new(ImageCrateEncoder::new());
@@ -187,16 +198,56 @@ mod tests {
         let service = DescriptionService::new(image_provider, chat, xmp_metadata.clone());
 
         // Generate descriptions for the files in the temporary directory
-        service.generate(&temp_dir.path().into()).await?;
+        let result = service.generate(&temp_dir.path().into()).await;
+        assert!(result.is_ok());
+        // we should have processed 3 files
+        assert_eq!(result.unwrap(), 3);
 
-        let contents = xmp_metadata.get_description(&destination_file_path)?;
+        let contents = xmp_metadata.get_description(&destination_file_path1)?;
 
         // Verify the content of the XMP file
         assert_eq!(contents, Some("description".to_string()));
 
-        // Clean up by deleting the temporary file
-        remove_file(&destination_file_path)?;
+        // Clean up by deleting the temporary file(s)
+        remove_file(&destination_file_path1)?;
+        remove_file(&destination_file_path2)?;
 
         Ok(())
+    }
+
+    #[test]
+    fn test_can_be_skipped() {
+        // Test case 1: No description
+        assert!(!can_be_skipped(None, Path::new("test.jpg")));
+
+        // Test case 2: Description without image-related keywords
+        assert!(can_be_skipped(
+            Some("random description".to_string()),
+            Path::new("test.jpg")
+        ));
+
+        // Test case 3: Description with "image" keyword
+        assert!(!can_be_skipped(
+            Some("this is an image of nature".to_string()),
+            Path::new("test.jpg")
+        ));
+
+        // Test case 4: Description with "photo" keyword
+        assert!(!can_be_skipped(
+            Some("beautiful photo".to_string()),
+            Path::new("test.jpg")
+        ));
+
+        // Test case 5: Description with "PICTURE" keyword (case insensitive)
+        assert!(!can_be_skipped(
+            Some("This PICTURE shows mountains".to_string()),
+            Path::new("test.jpg")
+        ));
+
+        // Test case 6: Description with "photograph" keyword
+        assert!(!can_be_skipped(
+            Some("A photograph of sunset".to_string()),
+            Path::new("test.jpg")
+        ));
     }
 }

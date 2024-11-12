@@ -123,7 +123,9 @@ impl From<&ScoredPoint> for VectorOutput {
 
         let score = point.score;
 
-        let id = match point.id.as_ref().unwrap().point_id_options {
+        let point_id = point.id.as_ref();
+
+        let id = match point_id.and_then(|id| id.point_id_options.clone()) {
             Some(PointIdOptions::Num(id)) => id,
             _ => 0,
         };
@@ -190,6 +192,27 @@ mod tests {
     }
 
     #[test]
+    fn test_scored_point_to_vector_search_result_no_id() {
+        let mut payload = HashMap::new();
+        payload.insert("key1".to_string(), "test".into());
+
+        let payload_len = &payload.len();
+
+        let retrieved_point = ScoredPoint {
+            id: None,
+            payload,
+            score: 0.9,
+            ..ScoredPoint::default()
+        };
+
+        let result = VectorOutput::from(&retrieved_point);
+
+        assert_eq!(result.id, 0);
+        assert_eq!(result.score, Some(0.9));
+        assert_eq!(result.payload.len(), *payload_len);
+    }
+
+    #[test]
     fn test_retrieved_point_to_vector_search_result() {
         let mut payload = HashMap::new();
         payload.insert("key1".to_string(), "test".into());
@@ -207,6 +230,26 @@ mod tests {
         let result = VectorOutput::from(&retrieved_point);
 
         assert_eq!(result.id, 456);
+        assert_eq!(result.score, None);
+        assert_eq!(result.payload.len(), *payload_len);
+    }
+
+    #[test]
+    fn test_retrieved_point_to_vector_search_result_no_id() {
+        let mut payload = HashMap::new();
+        payload.insert("key1".to_string(), "test".into());
+
+        let payload_len = &payload.len();
+
+        let retrieved_point = RetrievedPoint {
+            id: None,
+            payload,
+            ..RetrievedPoint::default()
+        };
+
+        let result = VectorOutput::from(&retrieved_point);
+
+        assert_eq!(result.id, 0);
         assert_eq!(result.score, None);
         assert_eq!(result.payload.len(), *payload_len);
     }
