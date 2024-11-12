@@ -48,7 +48,10 @@ dump all xmp information
 # exiftool -if 'not $exif:XResolution' -ext jpg -ext jpeg -r /mnt/data/Photos/photos/ 
 # exiftool -trailer:all= -exif:XPComment= -exif:YResolution=72 -exif:XResolution=72 -exif:ResolutionUnit=inches -overwrite_original -ext jpg -ext jpeg -r /mnt/data/Photos/photos/
 # exiftool -MPF:all=  -if '$MPF:all' -r /mnt/data/Photos/photos/ -overwrite_original
-
+# exiftool -overwrite_original -if 'not $CreateDate' -r -AllDates="2023:01:01 00:00:00"  .
+# exiftool -if 'not $CreateDate' -r -j .
+# exiftool -photoshop:all= -overwrite_original -ext jpg -ext jpeg -r . -v
+# exiftool -xmp:CreateDate="2017:12:29 00:00:00" -exif:DateTimeOriginal="2017:12:29 00:00:00" -overwrite_original -ext jpg -ext jpeg -r . -v
 
 # Tests
 

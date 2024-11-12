@@ -27,6 +27,7 @@ serde_json = "1.0.132" # JSON serialization and deserialization library
 dotenv = "0.15.0" # Loads environment variables from .env file
 regex = "1.11.1" # Regular expression library
 chrono = "0.4.38"
+mongodb = "3.1.0"
 [dev-dependencies]
 rand = "0.8.5"
 tempfile = "3.13.0"
