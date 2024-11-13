@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Result};
-use photo_scanner_rust::domain::models::VectorOutputListUtils;
-use photo_scanner_rust::domain::ports::{Chat, VectorDB};
-use photo_scanner_rust::outbound::openai::OpenAI;
-use photo_scanner_rust::outbound::qdrant::QdrantClient;
+use photo_scanner::domain::models::VectorOutputListUtils;
+use photo_scanner::domain::ports::{Chat, VectorDB};
+use photo_scanner::outbound::openai::OpenAI;
+use photo_scanner::outbound::qdrant::QdrantClient;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, info, warn};

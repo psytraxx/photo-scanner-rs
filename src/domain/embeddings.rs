@@ -24,8 +24,6 @@ pub struct EmbeddingsService {
     chat: Arc<dyn Chat>,
     xmp_metadata: Arc<dyn XMPMetadata>,
     vector_db: Arc<dyn VectorDB>,
-    // if set to true, the collection will be dropped and recreated before processing
-    drop_collection: bool,
 }
 
 impl EmbeddingsService {
@@ -33,23 +31,22 @@ impl EmbeddingsService {
         chat: Arc<dyn Chat>,
         xmp_metadata: Arc<dyn XMPMetadata>,
         vector_db: Arc<dyn VectorDB>,
-        drop_collection: bool,
     ) -> Self {
         EmbeddingsService {
             chat,
             xmp_metadata,
             vector_db,
-            drop_collection,
         }
+    }
+
+    pub async fn create_collection(&self) -> Result<()> {
+        self.vector_db.delete_collection(COLLECTION_NAME).await?;
+        self.vector_db.create_collection(COLLECTION_NAME).await?;
+        Ok(())
     }
 
     pub async fn generate(&self, root_path: &PathBuf) -> Result<()> {
         let files_list = list_jpeg_files(root_path)?;
-
-        if self.drop_collection {
-            self.vector_db.delete_collection(COLLECTION_NAME).await?;
-            self.vector_db.create_collection(COLLECTION_NAME).await?;
-        }
 
         let progress_bar = Arc::new(ProgressBar::new(files_list.len() as u64));
         progress_bar.set_style(
@@ -156,11 +153,7 @@ impl EmbeddingsService {
                     ("folder".to_string(), folder_name),
                 ]);
 
-                VectorInput {
-                    id: task.id,
-                    embedding,
-                    payload,
-                }
+                VectorInput::new(task.id, embedding, payload)
             })
             .collect();
 
@@ -181,14 +174,19 @@ fn generate_hash(path: &PathBuf) -> u64 {
 
 #[cfg(test)]
 pub mod tests {
+    use crate::domain::ports::VectorDB;
     use crate::{
-        domain::embeddings::{generate_hash, EmbeddingsService},
+        domain::{
+            embeddings::{generate_hash, EmbeddingsService, COLLECTION_NAME},
+            models::VectorInput,
+        },
         outbound::{
             test_mocks::tests::{ChatMock, VectorDBMock},
             xmp::XMPToolkitMetadata,
         },
     };
     use anyhow::Result;
+    use std::collections::HashMap;
     use std::{
         fs::{copy, remove_file},
         path::PathBuf,
@@ -212,9 +210,10 @@ pub mod tests {
         let chat = Arc::new(ChatMock);
         let xmp_metadata = Arc::new(XMPToolkitMetadata::new());
         let vector_db = Arc::new(VectorDBMock::new());
+        vector_db.create_collection(COLLECTION_NAME).await?;
 
         // Create the DescriptionService instance
-        let service = EmbeddingsService::new(chat, xmp_metadata.clone(), vector_db, true);
+        let service = EmbeddingsService::new(chat, xmp_metadata.clone(), vector_db);
 
         // Generate descriptions for the files in the temporary directory
         let result = service.generate(&temp_dir.path().into()).await;
@@ -223,6 +222,48 @@ pub mod tests {
 
         // Clean up by deleting the temporary file(s)
         remove_file(&destination_file_path1)?;
+        remove_file(&destination_file_path2)?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_generate_embeddings_existing() -> Result<()> {
+        let temp_dir = tempfile::tempdir()?;
+
+        let destination_file_path2 = temp_dir.path().join("example-existing-description-xmp.jpg");
+        // Copy an existing JPEG wit an existing description to the temporary directory
+        let source_file = PathBuf::from("testdata/example-existing-description-xmp.jpg");
+        copy(&source_file, &destination_file_path2)?;
+
+        // Initialize dependencies
+        let chat = Arc::new(ChatMock);
+        let xmp_metadata = Arc::new(XMPToolkitMetadata::new());
+        let vector_db = Arc::new(VectorDBMock::new());
+
+        let id_path2 = generate_hash(&destination_file_path2);
+
+        let input = vec![VectorInput::new(
+            id_path2,
+            vec![0.1, 0.2, 0.3],
+            HashMap::from([(
+                "description".to_string(),
+                "Existing description".to_string(), // has to be inside the referenced file
+            )]),
+        )];
+
+        vector_db.create_collection(COLLECTION_NAME).await?;
+        vector_db.upsert_points(COLLECTION_NAME, &input).await?;
+
+        // Create the DescriptionService instance
+        let service = EmbeddingsService::new(chat, xmp_metadata.clone(), vector_db);
+
+        // Generate descriptions for the files in the temporary directory
+        let result = service.generate(&temp_dir.path().into()).await;
+
+        assert!(result.is_ok());
+
+        // Clean up by deleting the temporary file(s)
         remove_file(&destination_file_path2)?;
 
         Ok(())

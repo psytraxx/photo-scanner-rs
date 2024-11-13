@@ -1569,8 +1569,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3148f5046208a5d56bcfc03053e3ca6334e51da8dfb19b6cdc8b306fae3283e"
 
 [[package]]
-name = "photo-scanner-rust"
-version = "0.2.0"
+name = "photo-scanner"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "async-openai",

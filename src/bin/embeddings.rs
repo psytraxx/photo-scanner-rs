@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Result};
-use photo_scanner_rust::domain::embeddings::EmbeddingsService;
-use photo_scanner_rust::outbound::openai::OpenAI;
-use photo_scanner_rust::outbound::qdrant::QdrantClient;
-use photo_scanner_rust::outbound::xmp::XMPToolkitMetadata;
+use photo_scanner::domain::embeddings::EmbeddingsService;
+use photo_scanner::outbound::openai::OpenAI;
+use photo_scanner::outbound::qdrant::QdrantClient;
+use photo_scanner::outbound::xmp::XMPToolkitMetadata;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing_appender::rolling;
@@ -37,7 +37,9 @@ async fn main() -> Result<()> {
     }
     let root_path = PathBuf::from(&args[1]);
 
-    let service = EmbeddingsService::new(chat, xmp_toolkit, vector_db, false);
+    let service = EmbeddingsService::new(chat, xmp_toolkit, vector_db);
+
+    //service.create_collection().await?;
 
     service.generate(&root_path).await
 }

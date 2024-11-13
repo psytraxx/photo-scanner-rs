@@ -106,11 +106,11 @@ pub mod tests {
                 }
 
                 // Insert a new entry
-                collection.push(VectorInput {
-                    id: input.id,
-                    embedding: input.embedding.clone(),
-                    payload: input.payload.clone(),
-                });
+                collection.push(VectorInput::new(
+                    input.id,
+                    input.embedding.clone(),
+                    input.payload.clone(),
+                ));
             });
             Ok(true)
         }
@@ -176,11 +176,7 @@ pub mod tests {
         assert!(created);
 
         // Test upsert_points
-        let mut input = VectorInput {
-            id,
-            embedding: vec![0.1, 0.2, 0.3],
-            payload: HashMap::new(),
-        };
+        let mut input = VectorInput::new(id, vec![0.1, 0.2, 0.3], HashMap::new());
         let inserted = vector_db_mock
             .upsert_points("test", &[input.clone()])
             .await

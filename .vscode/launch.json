@@ -7,16 +7,16 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in library 'photo_scanner_rust'",
+            "name": "Debug unit tests in library 'photo-scanner'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
                     "--lib",
-                    "--package=photo-scanner-rust"
+                    "--package=photo-scanner"
                 ],
                 "filter": {
-                    "name": "photo_scanner_rust",
+                    "name": "photo_scanner",
                     "kind": "lib"
                 }
             },
@@ -33,7 +33,7 @@
                 "args": [
                     "build",
                     "--bin=descriptions",
-                    "--package=photo-scanner-rust"
+                    "--package=photo-scanner"
                 ],
                 "filter": {
                     "name": "descriptions",
@@ -54,7 +54,7 @@
                     "test",
                     "--no-run",
                     "--bin=descriptions",
-                    "--package=photo-scanner-rust"
+                    "--package=photo-scanner"
                 ],
                 "filter": {
                     "name": "descriptions",
@@ -74,7 +74,7 @@
                 "args": [
                     "build",
                     "--bin=embeddings",
-                    "--package=photo-scanner-rust"
+                    "--package=photo-scanner"
                 ],
                 "filter": {
                     "name": "embeddings",
@@ -95,7 +95,7 @@
                     "test",
                     "--no-run",
                     "--bin=embeddings",
-                    "--package=photo-scanner-rust"
+                    "--package=photo-scanner"
                 ],
                 "filter": {
                     "name": "embeddings",

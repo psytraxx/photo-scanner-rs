@@ -57,6 +57,16 @@ pub struct VectorInput {
     pub payload: HashMap<String, String>,
 }
 
+impl VectorInput {
+    pub fn new(id: u64, embedding: Vec<f32>, payload: HashMap<String, String>) -> Self {
+        Self {
+            id,
+            embedding,
+            payload,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

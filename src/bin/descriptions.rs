@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Result};
-use photo_scanner_rust::domain::descriptions::DescriptionService;
-use photo_scanner_rust::outbound::image_provider::ImageCrateEncoder;
-use photo_scanner_rust::outbound::openai::OpenAI;
-use photo_scanner_rust::outbound::xmp::XMPToolkitMetadata;
+use photo_scanner::domain::descriptions::DescriptionService;
+use photo_scanner::outbound::image_provider::ImageCrateEncoder;
+use photo_scanner::outbound::openai::OpenAI;
+use photo_scanner::outbound::xmp::XMPToolkitMetadata;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing_appender::rolling;

@@ -1,6 +1,6 @@
 [package]
-name = "photo-scanner-rust"
-version = "0.2.0"
+name = "photo-scanner"
+version = "0.3.0"
 edition = "2021"
 
 [dependencies]
