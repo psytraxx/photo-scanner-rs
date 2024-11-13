@@ -14,7 +14,7 @@ use qdrant_client::{
     Payload, Qdrant,
 };
 use serde_json::json;
-use std::{collections::HashMap, vec};
+use std::{collections::HashMap, env::var, vec};
 
 pub struct QdrantClient {
     client: Qdrant,
@@ -22,8 +22,16 @@ pub struct QdrantClient {
 }
 
 impl QdrantClient {
-    pub fn new(url: &str, dimensions: u64) -> Result<Self> {
-        let client = Qdrant::from_url(url).build()?;
+    pub fn new() -> Result<Self> {
+        // load env from .env file
+        dotenv::dotenv().ok();
+        let url = var("QDRANT_GRPC_URL").expect("QDRANT_GRPC must be set in .env file");
+        let dimensions: u64 = var("QDRANT_GRPC_DIMENSION")
+            .expect("QDRANT_GRPC_DIMENSION must be set in .env file")
+            .parse()
+            .expect("QDRANT_GRPC_DIMENSION must be a valid u64");
+
+        let client = Qdrant::from_url(&url).build()?;
         Ok(Self { client, dimensions })
     }
 }

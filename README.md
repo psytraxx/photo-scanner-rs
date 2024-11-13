@@ -42,9 +42,13 @@ dump all xmp information
 
     exiftool -xmp -b -r /home/eric/Desktop/sizilien 
 
-fix for windows after generation
 
-    exiftool "-XPComment<XMP:Description" -if 'not $XPComment or $XMP:Description ne $XPComment' -v -overwrite_original -iptc:Caption-Abstract= -exif:ImageDescription=  -r /mnt/data/Photos/photos/2023/
+
+# exiftool -exif:XPComment= -if '$XPComment' -r /mnt/data/Photos/photos/ -overwrite_original
+# exiftool -if 'not $exif:XResolution' -ext jpg -ext jpeg -r /mnt/data/Photos/photos/ 
+# exiftool -trailer:all= -exif:XPComment= -exif:YResolution=72 -exif:XResolution=72 -exif:ResolutionUnit=inches -overwrite_original -ext jpg -ext jpeg -r /mnt/data/Photos/photos/
+# exiftool -MPF:all=  -if '$MPF:all' -r /mnt/data/Photos/photos/ -overwrite_original
+
 
 # Tests
 

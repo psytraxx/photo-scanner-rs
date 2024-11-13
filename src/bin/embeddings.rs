@@ -8,8 +8,6 @@ use std::sync::Arc;
 use tracing_appender::rolling;
 use tracing_subscriber::EnvFilter;
 
-const QDRANT_GRPC: &str = "http://dot.dynamicflash.de:6334";
-
 /// Main entry point.
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -28,7 +26,7 @@ async fn main() -> Result<()> {
 
     let xmp_toolkit = Arc::new(XMPToolkitMetadata::new());
 
-    let vector_db = Arc::new(QdrantClient::new(QDRANT_GRPC, 1024)?);
+    let vector_db = Arc::new(QdrantClient::new()?);
 
     // Get the folder path from command line arguments.
     let args: Vec<String> = std::env::args().collect();
