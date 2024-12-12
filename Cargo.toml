@@ -5,13 +5,13 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.93" # Error handling library
-async-openai = "0.25.0" # Asynchronous OpenAI API client
+async-openai = "0.26.0" # Asynchronous OpenAI API client
 base64 = "0.22.1" # Base64 encoding and decoding library
 tracing = "0.1.40" # Event tracing for your application
 tracing-subscriber = { version = "0.3.18", features = [
     "env-filter",
 ] } # Trace events to output streams
-tokio = { version = "1.40.1", features = [
+tokio = { version = "1.41.1", features = [
     "full",
 ] } # Asynchronous runtime for Rust
 async-trait = "0.1.83" # Trait for async functions in Rust
@@ -26,7 +26,7 @@ qdrant-client = "1.12.1" # Client for Qdrant, a vector similarity search engine
 serde_json = "1.0.132" # JSON serialization and deserialization library
 dotenv = "0.15.0" # Loads environment variables from .env file
 regex = "1.11.1" # Regular expression library
-chrono = "0.4.38"
+chrono = "0.4.39"
 [dev-dependencies]
 rand = "0.8.5"
 tempfile = "3.13.0"
