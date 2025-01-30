@@ -46,7 +46,7 @@ impl VectorOutputListUtils for VectorOutputList {
         // The `retain` method keeps only the elements specified by the predicate
         // The `map_or` method returns the provided value if the `Option` is `None`, or applies a function to the contained value if `Some`
         // In this case, it checks if the score is `Some` and if it's greater than the threshold
-        self.retain(|output| output.score.map_or(false, |s| s > score));
+        self.retain(|output| output.score.is_some_and(|s| s > score));
     }
 }
 

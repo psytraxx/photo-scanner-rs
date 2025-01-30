@@ -20,18 +20,24 @@ use tracing::{error, info, warn};
 const CHUNK_SIZE: usize = 25;
 const COLLECTION_NAME: &str = "photos";
 
-pub struct EmbeddingsService {
-    chat: Arc<dyn Chat>,
-    xmp_metadata: Arc<dyn XMPMetadata>,
-    vector_db: Arc<dyn VectorDB>,
+pub struct EmbeddingsService<C, V, X>
+where
+    C: Chat,
+    V: VectorDB,
+    X: XMPMetadata,
+{
+    chat: Arc<C>,
+    xmp_metadata: Arc<X>,
+    vector_db: Arc<V>,
 }
 
-impl EmbeddingsService {
-    pub fn new(
-        chat: Arc<dyn Chat>,
-        xmp_metadata: Arc<dyn XMPMetadata>,
-        vector_db: Arc<dyn VectorDB>,
-    ) -> Self {
+impl<C, V, X> EmbeddingsService<C, V, X>
+where
+    C: Chat,
+    V: VectorDB,
+    X: XMPMetadata,
+{
+    pub fn new(chat: Arc<C>, xmp_metadata: Arc<X>, vector_db: Arc<V>) -> Self {
         EmbeddingsService {
             chat,
             xmp_metadata,

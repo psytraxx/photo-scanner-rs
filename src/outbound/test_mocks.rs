@@ -3,8 +3,7 @@ pub mod tests {
     use std::{collections::HashMap, sync::Mutex};
 
     use anyhow::Result;
-    use async_trait::async_trait;
-    use rand::Rng;
+    use rand::{rng, Rng};
     use tracing::debug;
 
     use crate::domain::{
@@ -15,7 +14,6 @@ pub mod tests {
     #[derive(Clone, Debug)]
     pub struct ChatMock;
 
-    #[async_trait]
     impl Chat for ChatMock {
         async fn get_image_description(
             &self,
@@ -27,8 +25,8 @@ pub mod tests {
         }
 
         async fn get_embeddings(&self, _texts: Vec<String>) -> Result<Vec<Vec<f32>>> {
-            let mut rng = rand::thread_rng();
-            let embedding: Vec<f32> = (0..1536).map(|_| rng.gen()).collect();
+            let mut rng = rng();
+            let embedding: Vec<f32> = (0..1536).map(|_| rng.random()).collect();
             Ok(vec![embedding])
         }
 
@@ -54,7 +52,6 @@ pub mod tests {
         }
     }
 
-    #[async_trait]
     impl VectorDB for VectorDBMock {
         async fn create_collection(&self, collection_name: &str) -> Result<bool> {
             let mut store = self.store_embeddings.lock().unwrap();
@@ -140,7 +137,7 @@ pub mod tests {
                         })
                         .collect()
                 }
-                None => return Ok(Vec::new()),
+                None => Ok(Vec::new()),
             }
         }
     }

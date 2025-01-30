@@ -1,6 +1,5 @@
 use crate::domain::ports::XMPMetadata;
 use anyhow::{anyhow, Context, Result};
-use async_trait::async_trait;
 use chrono::{DateTime, FixedOffset};
 use std::path::Path;
 use tracing::{debug, warn};
@@ -19,7 +18,6 @@ impl XMPToolkitMetadata {
     }
 }
 
-#[async_trait]
 impl XMPMetadata for XMPToolkitMetadata {
     fn get_description(&self, path: &Path) -> Result<Option<String>> {
         let mut xmp_file = open(path, false)?;

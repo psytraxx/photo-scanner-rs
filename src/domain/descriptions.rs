@@ -16,18 +16,24 @@ use tracing::{error, info, warn};
 // Maximum number of concurrent tasks for multimodal API
 const MAX_CONCURRENT_TASKS: usize = 2;
 
-pub struct DescriptionService {
-    image_provider: Arc<dyn ImageEncoder>,
-    chat: Arc<dyn Chat>,
-    xmp_metadata: Arc<dyn XMPMetadata>,
+pub struct DescriptionService<C, X, I>
+where
+    C: Chat,
+    X: XMPMetadata,
+    I: ImageEncoder,
+{
+    image_provider: Arc<I>,
+    chat: Arc<C>,
+    xmp_metadata: Arc<X>,
 }
 
-impl DescriptionService {
-    pub fn new(
-        image_provider: Arc<dyn ImageEncoder>,
-        chat: Arc<dyn Chat>,
-        xmp_metadata: Arc<dyn XMPMetadata>,
-    ) -> Self {
+impl<C, X, I> DescriptionService<C, X, I>
+where
+    C: Chat,
+    X: XMPMetadata,
+    I: ImageEncoder,
+{
+    pub fn new(image_provider: Arc<I>, chat: Arc<C>, xmp_metadata: Arc<X>) -> Self {
         DescriptionService {
             image_provider,
             chat,

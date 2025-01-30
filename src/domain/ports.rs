@@ -1,11 +1,9 @@
 use super::models::{VectorInput, VectorOutput, VectorOutputList};
 use anyhow::Result;
-use async_trait::async_trait;
 use chrono::{DateTime, FixedOffset};
-use std::{collections::HashMap, path::Path, vec::Vec};
+use std::{collections::HashMap, future::Future, path::Path, vec::Vec};
 
-#[async_trait]
-pub trait Chat: 'static + Send + Sync {
+pub trait Chat {
     /// Asynchronously generates a description for a given base64 encoded image.
     ///
     /// # Arguments
@@ -17,12 +15,12 @@ pub trait Chat: 'static + Send + Sync {
     /// # Returns
     ///
     /// * `Result<String>` - A Result containing a String that represents the description of the image, or an error.
-    async fn get_image_description(
+    fn get_image_description(
         &self,
         image_base64: &str,
         persons: &[String],
         folder_name: &Option<String>,
-    ) -> Result<String>;
+    ) -> impl Future<Output = Result<String>> + Send;
 
     /// Asynchronously generates embeddings for a given list of texts.
     ///
@@ -33,7 +31,10 @@ pub trait Chat: 'static + Send + Sync {
     /// # Returns
     ///
     /// * `Result<Vec<Vec<f32>>>` - A Result containing a vector of float vectors that represent the embeddings, or an error.
-    async fn get_embeddings(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>>;
+    fn get_embeddings(
+        &self,
+        texts: Vec<String>,
+    ) -> impl Future<Output = Result<Vec<Vec<f32>>>> + Send;
 
     /// Asynchronously processes the results of a search query and returns a response.
     ///
@@ -45,11 +46,15 @@ pub trait Chat: 'static + Send + Sync {
     /// # Returns
     ///
     /// * `Result<String>` - A Result containing a String that represents the response to the search query, or an error.
-    async fn process_search_result(&self, question: &str, options: &[String]) -> Result<String>;
+    fn process_search_result(
+        &self,
+        question: &str,
+        options: &[String],
+    ) -> impl Future<Output = Result<String>> + Send;
 }
 
 /// A trait for encoding images into base64 strings.
-pub trait ImageEncoder: 'static + Send + Sync {
+pub trait ImageEncoder {
     /// Resizes an image and encodes it into a base64 string.
     ///
     /// # Arguments
@@ -63,7 +68,7 @@ pub trait ImageEncoder: 'static + Send + Sync {
 }
 
 /// A trait for working with XMP metadata in images.
-pub trait XMPMetadata: 'static + Send + Sync {
+pub trait XMPMetadata {
     /// Retrieves the description metadata from an image.
     ///
     /// # Arguments
@@ -115,8 +120,7 @@ pub trait XMPMetadata: 'static + Send + Sync {
 }
 
 /// A trait for working with vector databases.
-#[async_trait]
-pub trait VectorDB: 'static + Sync + Send {
+pub trait VectorDB {
     /// Asynchronously creates a collection in the vector database.
     ///
     /// # Arguments
@@ -126,7 +130,7 @@ pub trait VectorDB: 'static + Sync + Send {
     /// # Returns
     ///
     /// * `Result<bool>` - A Result containing a boolean that indicates whether the collection was successfully created, or an error.
-    async fn create_collection(&self, collection: &str) -> Result<bool>;
+    fn create_collection(&self, collection: &str) -> impl Future<Output = Result<bool>> + Send;
 
     /// Asynchronously deletes a collection from the vector database.
     ///
@@ -137,7 +141,7 @@ pub trait VectorDB: 'static + Sync + Send {
     /// # Returns
     ///
     /// * `Result<bool>` - A Result containing a boolean that indicates whether the collection was successfully deleted, or an error.
-    async fn delete_collection(&self, text: &str) -> Result<bool>;
+    fn delete_collection(&self, text: &str) -> impl Future<Output = Result<bool>> + Send;
 
     /// Asynchronously upserts points into a collection in the vector database.
     ///
@@ -149,7 +153,11 @@ pub trait VectorDB: 'static + Sync + Send {
     /// # Returns
     ///
     /// * `Result<bool>` - A Result containing a boolean that indicates whether the points were successfully upserted, or an error.
-    async fn upsert_points(&self, collection_name: &str, inputs: &[VectorInput]) -> Result<bool>;
+    fn upsert_points(
+        &self,
+        collection_name: &str,
+        inputs: &[VectorInput],
+    ) -> impl Future<Output = Result<bool>> + Send;
 
     /// Asynchronously searches for points in a collection in the vector database.
     ///
@@ -162,12 +170,12 @@ pub trait VectorDB: 'static + Sync + Send {
     /// # Returns
     ///
     /// * `Result<VectorOutputList>` - A Result containing a VectorOutputList that represents the search results, or an error.
-    async fn search_points(
+    fn search_points(
         &self,
         collection_name: &str,
         input_vectors: &[f32],
         payload_required: HashMap<String, String>,
-    ) -> Result<VectorOutputList>;
+    ) -> impl Future<Output = Result<VectorOutputList>> + Send;
 
     /// Asynchronously finds a point in a collection in the vector database by its ID.
     ///
@@ -179,5 +187,9 @@ pub trait VectorDB: 'static + Sync + Send {
     /// # Returns
     ///
     /// * `Result<Option<VectorOutput>>` - A Result containing an Option that represents the point found, or an error.
-    async fn find_by_id(&self, collection_name: &str, id: &u64) -> Result<Option<VectorOutput>>;
+    fn find_by_id(
+        &self,
+        collection_name: &str,
+        id: &u64,
+    ) -> impl Future<Output = Result<Option<VectorOutput>>> + Send;
 }

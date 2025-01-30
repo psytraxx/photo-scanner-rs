@@ -3,7 +3,6 @@ use crate::domain::{
     ports::VectorDB,
 };
 use anyhow::{Error, Result};
-use async_trait::async_trait;
 use qdrant_client::{
     qdrant::{
         point_id::PointIdOptions, Condition, CreateCollectionBuilder, Distance, Filter,
@@ -36,7 +35,6 @@ impl QdrantClient {
     }
 }
 
-#[async_trait]
 impl VectorDB for QdrantClient {
     async fn create_collection(&self, collection: &str) -> Result<bool> {
         self.client

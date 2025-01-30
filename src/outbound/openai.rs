@@ -11,7 +11,6 @@ use async_openai::{
         CreateEmbeddingRequestArgs, EmbeddingInput, ImageDetail, ImageUrlArgs, Role,
     },
 };
-use async_trait::async_trait;
 use std::{env::var, vec::Vec};
 use tracing::debug;
 
@@ -53,7 +52,6 @@ impl OpenAI {
     }
 }
 
-#[async_trait]
 impl Chat for OpenAI {
     async fn get_image_description(
         &self,
