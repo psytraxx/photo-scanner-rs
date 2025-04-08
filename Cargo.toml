@@ -11,7 +11,7 @@ tracing = "0.1.40" # Event tracing for your application
 tracing-subscriber = { version = "0.3.18", features = [
     "env-filter",
 ] } # Trace events to output streams
-tokio = { version = "1.41.1", features = [
+tokio = { version = "1.44.2", features = [
     "full",
 ] } # Asynchronous runtime for Rust
 xmp_toolkit = { version = "1.9.1", features = [
